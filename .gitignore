@@ -1,0 +1,23 @@
+# Secrets — Plex server URL + token. NEVER commit.
+.env
+.env.*
+!.env.example
+
+# Downloaded audio scratch — fetched from Plex per sync run, not ours to commit
+tmp/
+downloads/
+
+# iTunesDB backups copied off the iPod (personal library metadata)
+*.itunesdb
+iTunesDB.backup-*
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Personal scratch — plans, ADRs, context docs (local-only)
+.claude-personal/
+
+# OS
+.DS_Store
