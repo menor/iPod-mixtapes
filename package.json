@@ -4,26 +4,24 @@
   "description": "Sync a named Plex playlist onto a 5.5-gen iPod Video. Plex is the source of truth; the iPod is a one-way mirror. Built on the podscribe iTunesDB library.",
   "type": "module",
   "license": "MIT",
-  "engines": {
-    "node": ">=26"
-  },
   "bin": {
     "ipod-mixtapes": "src/cli/sync.ts"
   },
   "scripts": {
-    "sync": "tsx src/cli/sync.ts",
+    "sync": "bun run src/cli/sync.ts",
     "typecheck": "tsgo -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "bun test"
   },
   "dependencies": {
     "@ctrl/plex": "^6.0.0",
     "podscribe": "github:menor/podscribe"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "@types/node": "^24.0.0",
-    "@typescript/native-preview": "latest",
-    "tsx": "^4.19.0",
-    "vitest": "^4.0.0"
-  }
+    "@typescript/native-preview": "latest"
+  },
+  "trustedDependencies": [
+    "podscribe"
+  ]
 }
