@@ -96,10 +96,18 @@ export async function syncPlaylistToIpod(input: SyncInput): Promise<SyncSummary>
         onProgress: (p) => events?.onTrackProgress?.(i, p.received, p.total),
       });
 
-      // addTrack copies the file in, reads tags, and registers it on the master
-      // playlist. Stamp the ratingKey so iteration 2 can match by identity.
+      // addTrack copies the file in, probes the file for stream info, and registers
+      // it on the master playlist. Stamp the ratingKey so iteration 2 can match by
+      // identity. Overlay Plex's metadata via `meta`: many source files carry no ID3
+      // tags, so the file probe alone would write blank title/artist/album. Plex is
+      // the source of truth here; only defined fields override the probe.
       const ipodTrack = await addTrack(db, tempPath, {
         comment: `PLEXID:${track.ratingKey}`,
+        meta: {
+          title: track.title,
+          artist: track.artist,
+          album: track.album,
+        },
       });
       addToPlaylist(playlist, ipodTrack);
 

@@ -71,7 +71,7 @@
 
     "ofetch": ["ofetch@1.5.1", "", { "dependencies": { "destr": "^2.0.5", "node-fetch-native": "^1.6.7", "ufo": "^1.6.1" } }, "sha512-2W4oUZlVaqAPAil6FUg/difl6YhqhUR7x2eZY4bQCko22UXg3hptq9KLQdqFClV+Wu85UX7hNtdGTngi/1BxcA=="],
 
-    "podscribe": ["podscribe@github:menor/podscribe#f8ac4b0", { "dependencies": { "music-metadata": "^11.0.0" }, "bin": { "ipod-add": "dist/cli/ipod-add.js" } }, "menor-podscribe-f8ac4b0", "sha512-eWcp/UkMnzItXn/YNv6c64HOzI6rASz1IyGXa1dgypLE/TgscT2Kq8cFhuuLXqAJ5E0AQ0GQWKqIhPXWx4wj+w=="],
+    "podscribe": ["podscribe@github:menor/podscribe#6df55f5", { "dependencies": { "music-metadata": "^11.0.0" }, "bin": { "ipod-add": "dist/cli/ipod-add.js" } }, "menor-podscribe-6df55f5", "sha512-EjkiNpvE+rs/z9Lma3KiV8Sf5n7igSHlE6w8XGI6u8AUurBDIfFJm52pJQfoAIZjqSHBjdq6petsc9F/O2sGlA=="],
 
     "sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
 
