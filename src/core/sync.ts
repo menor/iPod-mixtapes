@@ -21,8 +21,8 @@ import {
   addToPlaylist,
   save,
 } from "podscribe";
-import { downloadFile } from "./download.js";
-import type { PlexTrackRef } from "./plex.js";
+import { downloadFile } from "./download.ts";
+import type { PlexTrackRef } from "./plex.ts";
 
 export interface SyncEvents {
   /** Coarse phase changes, e.g. "opening iPod", "wiping", "downloading". */

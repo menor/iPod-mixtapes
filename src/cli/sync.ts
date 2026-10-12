@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Thin CLI over the UI-agnostic core (src/core). It parses args, prints progress,
  * and sets the exit code — all sync logic lives in the core so a future webapp can
@@ -16,9 +16,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPlexConfig } from "../config.js";
-import { connectPlex, fetchPlaylist } from "../core/plex.js";
-import { syncPlaylistToIpod, type SyncSummary } from "../core/sync.js";
+import { loadPlexConfig } from "../config.ts";
+import { connectPlex, fetchPlaylist } from "../core/plex.ts";
+import { syncPlaylistToIpod, type SyncSummary } from "../core/sync.ts";
 
 interface Args {
   playlist: string;

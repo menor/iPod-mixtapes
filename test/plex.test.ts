@@ -1,5 +1,6 @@
-import { describe, it, expect } from "bun:test";
-import { fetchPlaylist } from "../src/core/plex.js";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { fetchPlaylist } from "../src/core/plex.ts";
 import type { PlexServer } from "@ctrl/plex";
 
 /**
@@ -36,10 +37,10 @@ describe("fetchPlaylist", () => {
 
     const pl = await fetchPlaylist(server, "roadtrip"); // case-insensitive
 
-    expect(pl.title).toBe("Roadtrip");
-    expect(pl.tracks).toHaveLength(1);
+    assert.equal(pl.title, "Roadtrip");
+    assert.equal(pl.tracks.length, 1);
     const t = pl.tracks[0]!;
-    expect(t).toMatchObject({
+    assert.partialDeepStrictEqual(t, {
       ratingKey: "55123",
       title: "Song One",
       artist: "Artist A",
@@ -48,8 +49,8 @@ describe("fetchPlaylist", () => {
       container: "mp3",
       sizeBytes: 5_000_000,
     });
-    expect(t.downloadUrl).toContain("/library/parts/1/file.mp3");
-    expect(t.downloadUrl).toContain("X-Plex-Token=tok");
+    assert.ok(t.downloadUrl.includes("/library/parts/1/file.mp3"));
+    assert.ok(t.downloadUrl.includes("X-Plex-Token=tok"));
   });
 
   it("throws naming available audio playlists when the name is unknown", async () => {
@@ -58,7 +59,7 @@ describe("fetchPlaylist", () => {
       fakePlaylist("Chill", [fakeTrack()]),
     ]);
 
-    await expect(fetchPlaylist(server, "Nope")).rejects.toThrow(/"Chill", "Roadtrip"/);
+    await assert.rejects(fetchPlaylist(server, "Nope"), /"Chill", "Roadtrip"/);
   });
 
   it("fails loudly when a track has no downloadable part", async () => {
@@ -66,6 +67,6 @@ describe("fetchPlaylist", () => {
       fakePlaylist("Roadtrip", [fakeTrack({ media: [{ parts: [] }] })]),
     ]);
 
-    await expect(fetchPlaylist(server, "Roadtrip")).rejects.toThrow(/no media part/);
+    await assert.rejects(fetchPlaylist(server, "Roadtrip"), /no media part/);
   });
 });

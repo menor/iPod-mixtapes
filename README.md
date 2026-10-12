@@ -2,21 +2,21 @@
 
 Sync a named Plex playlist onto a 5.5-gen iPod Video (A1136). Plex is the source of
 truth; the iPod is a one-way mirror. Built on the [podscribe](https://github.com/menor/podscribe)
-iTunesDB library. Runs on [Bun](https://bun.sh).
+iTunesDB library. Runs on Node 26 (TypeScript runs directly, no build step).
 
 ## Setup
 
 ```bash
-bun install
+npm install            # Node version pinned in .node-version (fnm/nvm pick it up)
 cp .env.example .env   # then fill in PLEX_BASE_URL and PLEX_TOKEN
 ```
 
-`.env` is gitignored and auto-loaded by Bun. The token is never hardcoded or logged.
+`.env` is gitignored and read by `src/config.ts`. The token is never hardcoded or logged.
 
 ## Usage
 
 ```bash
-bun run sync "<plex-playlist>" --mount /Volumes/IPOD
+npm run sync -- "<plex-playlist>" --mount /Volumes/IPOD
 ```
 
 Options:
@@ -56,6 +56,6 @@ web app can drive the same engine. `src/cli/` is a thin wrapper over it.
 ## Develop
 
 ```bash
-bun test           # bun:test
-bun run typecheck  # tsgo --noEmit
+npm test           # node:test
+npm run typecheck  # tsgo (no emit)
 ```

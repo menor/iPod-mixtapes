@@ -8,20 +8,22 @@
     "ipod-mixtapes": "src/cli/sync.ts"
   },
   "scripts": {
-    "sync": "bun run src/cli/sync.ts",
-    "typecheck": "tsgo -p tsconfig.json --noEmit",
-    "test": "bun test"
+    "sync": "node src/cli/sync.ts",
+    "typecheck": "tsgo -p tsconfig.json",
+    "test": "node --test 'test/**/*.test.ts'"
   },
   "dependencies": {
     "@ctrl/plex": "^6.0.0",
     "podscribe": "github:menor/podscribe"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.5",
     "@typescript/native-preview": "latest"
   },
-  "trustedDependencies": [
-    "podscribe"
-  ]
+  "engines": {
+    "node": ">=26.11"
+  },
+  "allowScripts": {
+    "github:menor/podscribe#6df55f5161d2511fa6e80750283cb20ad262c4c1": true
+  }
 }

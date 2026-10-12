@@ -19,9 +19,8 @@ export interface PlexConfig {
  * or empty value throws with a message naming exactly what to set and where.
  */
 export function loadPlexConfig(envPath = ".env"): PlexConfig {
-  // Bun auto-loads .env into the environment at startup. We still parse the given
-  // file so a custom `--env <path>` works without a Bun flag. Already-set vars
-  // (shell or Bun-loaded) win — we never overwrite them.
+  // Parse the given .env file ourselves so `--env <path>` works without a Node flag.
+  // Already-set vars (from the shell) win — we never overwrite them.
   if (existsSync(envPath)) {
     applyEnvFile(envPath);
   }

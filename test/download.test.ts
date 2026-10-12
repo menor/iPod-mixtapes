@@ -1,8 +1,9 @@
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, afterEach } from "node:test";
+import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { downloadFile } from "../src/core/download.js";
+import { downloadFile } from "../src/core/download.ts";
 
 const realFetch = globalThis.fetch;
 const tmpDirs: string[] = [];
@@ -43,8 +44,8 @@ describe("downloadFile", () => {
       onProgress: (p) => seen.push(p.received),
     });
 
-    expect(await readFile(dest, "utf8")).toBe("hello ipod");
-    expect(seen.at(-1)).toBe(payload.length);
+    assert.equal(await readFile(dest, "utf8"), "hello ipod");
+    assert.equal(seen.at(-1), payload.length);
   });
 
   it("retries after a failure, then succeeds", async () => {
@@ -59,8 +60,8 @@ describe("downloadFile", () => {
     const dest = join(await freshDir(), "out.mp3");
     await downloadFile("https://x/y.mp3", dest, { retries: 3, retryDelayMs: 1 });
 
-    expect(calls).toBe(2);
-    expect(await readFile(dest, "utf8")).toBe("second try");
+    assert.equal(calls, 2);
+    assert.equal(await readFile(dest, "utf8"), "second try");
   });
 
   it("gives up after exhausting retries, naming the last error", async () => {
@@ -68,8 +69,9 @@ describe("downloadFile", () => {
       new Response("nope", { status: 500, statusText: "Server Error" })) as unknown as typeof fetch;
 
     const dest = join(await freshDir(), "out.mp3");
-    await expect(
+    await assert.rejects(
       downloadFile("https://x/y.mp3", dest, { retries: 2, retryDelayMs: 1 }),
-    ).rejects.toThrow(/after 2 attempt/);
+      /after 2 attempt/,
+    );
   });
 });

@@ -6,7 +6,7 @@
  * or process access lives here — callers pass config in and get plain data back.
  */
 import { PlexServer } from "@ctrl/plex";
-import type { PlexConfig } from "../config.js";
+import type { PlexConfig } from "../config.ts";
 
 /** A Plex playlist reduced to what sync needs: identity + ordered members. */
 export interface PlexPlaylistRef {
