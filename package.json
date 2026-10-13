@@ -10,7 +10,8 @@
   "scripts": {
     "sync": "node src/cli/sync.ts",
     "typecheck": "tsgo -p tsconfig.json",
-    "test": "node --test 'test/**/*.test.ts'"
+    "test": "node --test 'test/**/*.test.ts'",
+    "serve": "node src/server/main.ts"
   },
   "dependencies": {
     "@ctrl/plex": "^6.0.0",

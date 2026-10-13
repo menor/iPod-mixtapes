@@ -24,9 +24,14 @@ import {
 import { downloadFile } from "./download.ts";
 import type { PlexTrackRef } from "./plex.ts";
 
+/**
+ * The engine's phases, in order. A fixed set so callers can map them (CLI labels,
+ * server job phases). Backup and wipe are one phase: podscribe's wipeAll does both.
+ */
+export type SyncPhase = "opening" | "wiping" | "downloading" | "writing";
+
 export interface SyncEvents {
-  /** Coarse phase changes, e.g. "opening iPod", "wiping", "downloading". */
-  onPhase?: (phase: string) => void;
+  onPhase?: (phase: SyncPhase) => void;
   /** The timestamped backup path of the pre-wipe iTunesDB, or undefined if none. */
   onBackup?: (backupPath: string | undefined) => void;
   onTrackStart?: (index: number, total: number, track: PlexTrackRef) => void;
@@ -67,13 +72,13 @@ export interface SyncSummary {
 export async function syncPlaylistToIpod(input: SyncInput): Promise<SyncSummary> {
   const { mountPath, playlistName, tracks, tempDir, libraryName, events } = input;
 
-  events?.onPhase?.("opening iPod");
+  events?.onPhase?.("opening");
   const db = openIpod(mountPath, libraryName ? { libraryName } : {});
 
   // wipeAll backs up the existing DB BEFORE deleting anything, then erases the
   // device. That single backup satisfies the "back up before any write" rule, so
   // the later save() skips its own backup (the original DB is already gone).
-  events?.onPhase?.("backing up + wiping iPod");
+  events?.onPhase?.("wiping");
   const backupPath = wipeAll(db, { confirm: true });
   events?.onBackup?.(backupPath);
 
@@ -83,7 +88,7 @@ export async function syncPlaylistToIpod(input: SyncInput): Promise<SyncSummary>
   const skipped: SkippedTrack[] = [];
   let added = 0;
 
-  events?.onPhase?.("downloading tracks");
+  events?.onPhase?.("downloading");
   for (let i = 0; i < tracks.length; i++) {
     const track = tracks[i]!;
     events?.onTrackStart?.(i, tracks.length, track);
@@ -120,7 +125,7 @@ export async function syncPlaylistToIpod(input: SyncInput): Promise<SyncSummary>
     }
   }
 
-  events?.onPhase?.("writing iTunesDB");
+  events?.onPhase?.("writing");
   const result = save(db, { backup: false });
 
   return {

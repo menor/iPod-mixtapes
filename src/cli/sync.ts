@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlexConfig } from "../config.ts";
 import { connectPlex, fetchPlaylist } from "../core/plex.ts";
-import { syncPlaylistToIpod, type SyncSummary } from "../core/sync.ts";
+import { syncPlaylistToIpod, type SyncPhase, type SyncSummary } from "../core/sync.ts";
 
 interface Args {
   playlist: string;
@@ -100,6 +100,13 @@ async function main(): Promise<void> {
   if (summary.skipped.length > 0) process.exitCode = 1;
 }
 
+const PHASE_LABELS: Record<SyncPhase, string> = {
+  opening: "opening iPod",
+  wiping: "backing up + wiping iPod",
+  downloading: "downloading tracks",
+  writing: "writing iTunesDB",
+};
+
 function makeProgressPrinter() {
   let barOpen = false;
   const endBar = () => {
@@ -109,9 +116,9 @@ function makeProgressPrinter() {
     }
   };
   return {
-    onPhase: (phase: string) => {
+    onPhase: (phase: SyncPhase) => {
       endBar();
-      process.stdout.write(`==> ${phase}\n`);
+      process.stdout.write(`==> ${PHASE_LABELS[phase]}\n`);
     },
     onBackup: (path?: string) => {
       process.stdout.write(

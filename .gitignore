@@ -7,6 +7,9 @@
 tmp/
 downloads/
 
+# Fake iPod volume for local testing (pass as --mount). Holds synced audio + iTunesDB.
+fake-ipod/
+
 # iTunesDB backups copied off the iPod (personal library metadata)
 *.itunesdb
 iTunesDB.backup-*
