@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iPod Mixtapes</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "preact": "/vendor/preact/preact.mjs",
+          "preact/hooks": "/vendor/preact/hooks.mjs"
+        }
+      }
+    </script>
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
+      label { display: block; margin-bottom: 0.75rem; }
+      input { display: block; width: 100%; padding: 0.4rem; font: inherit; box-sizing: border-box; }
+      button { font: inherit; padding: 0.5rem 1rem; }
+      .warning { border-left: 4px solid #c00; padding: 0.5rem 1rem; background: #fff3f3; }
+      .error { color: #c00; }
+      dt { font-weight: 600; }
+      dd { margin: 0 0 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module" src="/app/app.js"></script>
+  </body>
+</html>

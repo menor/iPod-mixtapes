@@ -9,13 +9,14 @@
   },
   "scripts": {
     "sync": "node src/cli/sync.ts",
-    "typecheck": "tsgo -p tsconfig.json",
+    "typecheck": "tsgo -p tsconfig.json && tsgo -p tsconfig.web.json",
     "test": "node --test 'test/**/*.test.ts'",
     "serve": "node src/server/main.ts"
   },
   "dependencies": {
     "@ctrl/plex": "^6.0.0",
-    "podscribe": "github:menor/podscribe"
+    "podscribe": "github:menor/podscribe",
+    "preact": "11.0.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

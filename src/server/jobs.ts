@@ -14,34 +14,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PlexPlaylistRef, PlexTrackRef } from "../core/plex.ts";
-import type { SyncInput, SyncPhase, SyncSummary } from "../core/sync.ts";
+import type { SyncInput, SyncSummary } from "../core/sync.ts";
+import type { JobPhase, JobSnapshot } from "../shared/job.ts";
 
-/**
- * planning → awaiting-approval → opening → wiping → downloading → writing → done
- * Any step can end in failed. Nothing touches the iPod before approval.
- */
-export type JobPhase = "planning" | "awaiting-approval" | SyncPhase | "done" | "failed";
-
-export interface JobSnapshot {
-  id: string;
-  phase: JobPhase;
-  /** The playlist name as requested; replaced by Plex's exact title after planning. */
-  playlistName: string;
-  mountPath: string;
-  tracksTotal: number;
-  tracksDone: number;
-  /** The track being downloaded now, if any. */
-  current?: { index: number; title: string; receivedBytes: number; totalBytes?: number };
-  skipped: { title: string; reason: string }[];
-  backupPath?: string;
-  /** Why the job failed, when phase is "failed". */
-  error?: string;
-  updatedAt: string;
-}
+export type { JobPhase, JobSnapshot, PlanPreview } from "../shared/job.ts";
 
 export interface JobDeps {
   /** Look up the playlist and its tracks. Throws when it does not exist. */
   plan(playlistName: string): Promise<PlexPlaylistRef>;
+  /** Count the tracks on the iPod. Read-only. Throws when the mount is not an iPod. */
+  inspectIpod(mountPath: string): Promise<{ trackCount: number }>;
   /** Run the engine. Production passes syncPlaylistToIpod. */
   sync(input: SyncInput): Promise<SyncSummary>;
 }
@@ -95,12 +77,21 @@ export class Job {
   /** Fetch the plan, then stop and wait for approve(). Never touches the iPod. */
   async plan(): Promise<void> {
     try {
-      const playlist = await this.#deps.plan(this.#state.playlistName);
+      const [playlist, ipod] = await Promise.all([
+        this.#deps.plan(this.#state.playlistName),
+        this.#deps.inspectIpod(this.#state.mountPath),
+      ]);
       this.#tracks = playlist.tracks;
+      const sizes = playlist.tracks.map((t) => t.sizeBytes);
       this.#update({
         phase: "awaiting-approval",
         playlistName: playlist.title,
         tracksTotal: playlist.tracks.length,
+        plan: {
+          totalBytes: sizes.reduce<number>((sum, n) => sum + (n ?? 0), 0),
+          unknownSizes: sizes.filter((n) => n === undefined).length,
+          ipodTracksNow: ipod.trackCount,
+        },
       });
     } catch (err) {
       this.#fail(err);
@@ -176,6 +167,11 @@ export class JobStore {
 
   get(id: string): Job | undefined {
     return this.#jobs.get(id);
+  }
+
+  /** The newest job. A freshly opened tab uses it to find a running sync. */
+  latest(): Job | undefined {
+    return [...this.#jobs.values()].at(-1);
   }
 
   /** Create a job and start planning in the background. */

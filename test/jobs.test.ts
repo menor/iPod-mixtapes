@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { PlexTrackRef } from "../src/core/plex.ts";
 import type { SyncInput, SyncSummary } from "../src/core/sync.ts";
@@ -8,7 +9,7 @@ import { JobConflictError, JobStore, type JobDeps, type JobSnapshot } from "../s
 import { createJobServer } from "../src/server/http.ts";
 
 const tracks: PlexTrackRef[] = [
-  { ratingKey: "1", title: "One", downloadUrl: "http://plex/1" },
+  { ratingKey: "1", title: "One", downloadUrl: "http://plex/1", sizeBytes: 3_000_000 },
   { ratingKey: "2", title: "Two", downloadUrl: "http://plex/2" },
 ];
 
@@ -24,6 +25,10 @@ function stubDeps() {
     plan: async (name) => {
       if (name === "missing") throw new Error('No playlist named "missing".');
       return { title: "Weezer", tracks };
+    },
+    inspectIpod: async (mount) => {
+      if (mount === "/not-an-ipod") throw new Error("no iPod_Control under /not-an-ipod");
+      return { trackCount: 7 };
     },
     sync: async (input: SyncInput): Promise<SyncSummary> => {
       syncCalls++;
@@ -75,7 +80,17 @@ describe("JobStore", () => {
     const ready = await w.until("awaiting-approval");
     assert.equal(ready.playlistName, "Weezer");
     assert.equal(ready.tracksTotal, 2);
+    // Track "Two" has no size, so the total is a lower bound and says so.
+    assert.deepEqual(ready.plan, { totalBytes: 3_000_000, unknownSizes: 1, ipodTracksNow: 7 });
     await new Promise((r) => setTimeout(r, 20));
+    assert.equal(syncCalls(), 0);
+  });
+
+  it("a folder that is not an iPod fails during planning, before any approval", async () => {
+    const { deps, syncCalls } = stubDeps();
+    const job = new JobStore(deps).create("weezer", "/not-an-ipod");
+    const failed = await watch(job).until("failed");
+    assert.match(failed.error!, /no iPod_Control/);
     assert.equal(syncCalls(), 0);
   });
 
@@ -125,12 +140,28 @@ describe("JobStore", () => {
 });
 
 describe("HTTP", () => {
-  it("POST /jobs, then the event stream opens with the current snapshot", async (t) => {
-    const { deps } = stubDeps();
-    const server = createJobServer(new JobStore(deps)).listen(0, "127.0.0.1");
+  async function serve(t: { after(fn: () => void): void }) {
+    const stub = stubDeps();
+    const server = createJobServer(new JobStore(stub.deps), { defaultMount: "./fake-ipod" });
+    server.listen(0, "127.0.0.1");
     await once(server, "listening");
     t.after(() => server.close());
-    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    return { ...stub, base: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+  }
+
+  /** Read the first SSE frame from a job's event stream. */
+  async function firstEvent(base: string, id: string): Promise<JobSnapshot> {
+    const abort = new AbortController();
+    const events = await fetch(`${base}/jobs/${id}/events`, { signal: abort.signal });
+    assert.equal(events.headers.get("content-type"), "text/event-stream");
+    const reader = events.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    abort.abort();
+    return JSON.parse(first.replace(/^data: /, "")) as JobSnapshot;
+  }
+
+  it("POST /jobs, then the event stream opens with the current snapshot", async (t) => {
+    const { base } = await serve(t);
 
     const bad = await fetch(`${base}/jobs`, { method: "POST", body: "{}" });
     assert.equal(bad.status, 400);
@@ -143,17 +174,70 @@ describe("HTTP", () => {
     const { id } = (await created.json()) as JobSnapshot;
     await new Promise((r) => setTimeout(r, 20)); // let planning finish
 
-    const abort = new AbortController();
-    const events = await fetch(`${base}/jobs/${id}/events`, { signal: abort.signal });
-    assert.equal(events.headers.get("content-type"), "text/event-stream");
-    const reader = events.body!.getReader();
-    const first = new TextDecoder().decode((await reader.read()).value);
-    abort.abort();
-
-    const snapshot = JSON.parse(first.replace(/^data: /, "")) as JobSnapshot;
+    const snapshot = await firstEvent(base, id);
     assert.equal(snapshot.phase, "awaiting-approval");
     assert.equal(snapshot.tracksTotal, 2);
+    assert.equal(snapshot.plan?.ipodTracksNow, 7);
 
     assert.equal((await fetch(`${base}/jobs/nope/events`)).status, 404);
   });
+
+  it("the engine runs only after POST /approve, and only once", async (t) => {
+    const { base, release, syncCalls } = await serve(t);
+    const created = await fetch(`${base}/jobs`, {
+      method: "POST",
+      body: JSON.stringify({ playlist: "weezer", mount: "/ipod" }),
+    });
+    const { id } = (await created.json()) as JobSnapshot;
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(syncCalls(), 0);
+
+    const approve = () => fetch(`${base}/jobs/${id}/approve`, { method: "POST" });
+    assert.equal((await approve()).status, 202);
+    assert.equal((await approve()).status, 409);
+    assert.equal(syncCalls(), 1);
+    release();
+  });
+
+  it("GET /jobs/latest finds the newest job, so a reopened tab can reconnect", async (t) => {
+    const { base } = await serve(t);
+    assert.equal((await fetch(`${base}/jobs/latest`)).status, 404);
+
+    const created = await fetch(`${base}/jobs`, {
+      method: "POST",
+      body: JSON.stringify({ playlist: "weezer", mount: "/ipod" }),
+    });
+    const { id } = (await created.json()) as JobSnapshot;
+    const latest = await fetch(`${base}/jobs/latest`);
+    assert.equal(latest.status, 200);
+    assert.equal(((await latest.json()) as JobSnapshot).id, id);
+  });
+
+  it("serves the UI files and nothing else", async (t) => {
+    const { base } = await serve(t);
+    const page = await fetch(`${base}/`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /importmap/);
+    for (const path of ["/app/app.js", "/vendor/preact/preact.mjs", "/vendor/preact/hooks.mjs"]) {
+      const res = await fetch(`${base}${path}`);
+      assert.equal(res.status, 200, path);
+      assert.match(res.headers.get("content-type")!, /javascript/);
+    }
+    assert.deepEqual(await (await fetch(`${base}/settings`)).json(), { defaultMount: "./fake-ipod" });
+    // fetch() normalizes "/../", so send the raw paths over node:http.
+    for (const path of ["/../package.json", "/app/../../package.json", "/src/web/app.js"]) {
+      assert.equal(await rawStatus(base, path), 404, path);
+    }
+  });
 });
+
+/** GET a path exactly as written, without URL normalization. */
+function rawStatus(base: string, path: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const { hostname, port } = new URL(base);
+    http.get({ hostname, port, path }, (res) => {
+      res.resume();
+      resolve(res.statusCode!);
+    }).on("error", reject);
+  });
+}

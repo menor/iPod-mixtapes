@@ -23,12 +23,9 @@ import {
 } from "podscribe";
 import { downloadFile } from "./download.ts";
 import type { PlexTrackRef } from "./plex.ts";
+import type { SyncPhase } from "../shared/job.ts";
 
-/**
- * The engine's phases, in order. A fixed set so callers can map them (CLI labels,
- * server job phases). Backup and wipe are one phase: podscribe's wipeAll does both.
- */
-export type SyncPhase = "opening" | "wiping" | "downloading" | "writing";
+export type { SyncPhase };
 
 export interface SyncEvents {
   onPhase?: (phase: SyncPhase) => void;

@@ -1,7 +1,10 @@
 /**
  * HTTP layer over the job store. node:http, no framework (ADR 0003).
  *
+ *   GET  /                     → the web UI (plus /app/*.js and /vendor/preact/*)
+ *   GET  /settings             → {"defaultMount": "..."} to prefill the form
  *   POST /jobs                 {"playlist": "...", "mount": "..."} → 201 snapshot
+ *   GET  /jobs/latest          → the newest job's snapshot, or 404 when there is none
  *   GET  /jobs/:id             → current snapshot
  *   GET  /jobs/:id/events      → Server-Sent Events: current snapshot first, then each change
  *   POST /jobs/:id/approve     → 202; starts the sync
@@ -9,21 +12,61 @@
  * Every SSE message is a full JobSnapshot, so a client that missed events is
  * correct again after the next one.
  */
+import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { join } from "node:path";
 import { JobConflictError, type JobStore } from "./jobs.ts";
 
 const MAX_BODY_BYTES = 10_000;
 
-export function createJobServer(store: JobStore): Server {
+const root = join(import.meta.dirname, "..", "..");
+const JS = "text/javascript; charset=utf-8";
+
+/** Every file the server will send. Anything else is a 404, so no path can escape. */
+const STATIC_FILES: Record<string, { file: string; type: string }> = {
+  "/": { file: join(root, "src/web/index.html"), type: "text/html; charset=utf-8" },
+  "/app/app.js": { file: join(root, "src/web/app.js"), type: JS },
+  "/vendor/preact/preact.mjs": { file: join(root, "node_modules/preact/dist/preact.mjs"), type: JS },
+  "/vendor/preact/hooks.mjs": { file: join(root, "node_modules/preact/hooks/dist/hooks.mjs"), type: JS },
+};
+
+export interface ServerOptions {
+  /** Prefills the form's mount field. */
+  defaultMount: string;
+}
+
+export function createJobServer(store: JobStore, options: ServerOptions): Server {
   return createServer((req, res) => {
-    handle(store, req, res).catch((err) => {
+    handle(store, options, req, res).catch((err) => {
       sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
     });
   });
 }
 
-async function handle(store: JobStore, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handle(
+  store: JobStore,
+  options: ServerOptions,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
   const path = new URL(req.url ?? "/", "http://localhost").pathname;
+
+  const asset = STATIC_FILES[path];
+  if (req.method === "GET" && asset) {
+    res.writeHead(200, { "content-type": asset.type, "cache-control": "no-cache" });
+    res.end(await readFile(asset.file));
+    return;
+  }
+
+  if (req.method === "GET" && path === "/settings") {
+    return sendJson(res, 200, { defaultMount: options.defaultMount });
+  }
+
+  if (req.method === "GET" && path === "/jobs/latest") {
+    const latest = store.latest();
+    if (!latest) return sendJson(res, 404, { error: "No jobs yet." });
+    return sendJson(res, 200, latest.snapshot());
+  }
 
   if (req.method === "POST" && path === "/jobs") {
     const body = await readJson(req);
