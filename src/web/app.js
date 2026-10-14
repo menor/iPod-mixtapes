@@ -6,6 +6,7 @@
  */
 import { h, render } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { describeDoingNow, describeOutcome, isWritingToIpod, mb, plural } from "./outcome.js";
 
 /** @typedef {import("../shared/job.ts").JobSnapshot} JobSnapshot */
 /** @typedef {import("../shared/job.ts").PlanPreview} PlanPreview */
@@ -80,26 +81,70 @@ function JobScreen({ job, onStartOver }) {
     case "awaiting-approval":
       return h(Preview, { job });
     case "done":
-      return h(
-        "div",
-        null,
-        h("h1", null, "Done"),
-        h("p", null, `${plural(job.tracksDone, "track")} of ${job.tracksTotal} on the iPod.`),
-        job.skipped.length > 0 && h("p", { class: "error" }, `${plural(job.skipped.length, "track")} skipped.`),
-        h("button", { onClick: onStartOver }, "Start another sync"),
-      );
     case "failed":
-      return h(
-        "div",
-        null,
-        h("h1", null, "Failed"),
-        h("p", { class: "error" }, job.error),
-        h("button", { onClick: onStartOver }, "Start another sync"),
-      );
+      return h(EndScreen, { job, onStartOver });
     default:
-      // Session 5 replaces this with the "doing now" line and the summary block.
-      return h("p", null, `${job.phase}: ${job.tracksDone} of ${job.tracksTotal} tracks done`);
+      return h(LiveScreen, { job });
   }
+}
+
+/** @param {{ job: JobSnapshot }} props */
+function LiveScreen({ job }) {
+  return h(
+    "div",
+    null,
+    isWritingToIpod(job.phase) && h("p", { class: "warning" }, "Do not unplug the iPod."),
+    h("p", { class: "doing-now" }, describeDoingNow(job)),
+    h(Summary, { job }),
+  );
+}
+
+/** @param {{ job: JobSnapshot, onStartOver: () => void }} props */
+function EndScreen({ job, onStartOver }) {
+  const o = describeOutcome(job);
+  return h(
+    "div",
+    null,
+    h("h1", { class: `tone-${o.tone}` }, o.headline),
+    h(
+      "dl",
+      null,
+      job.error && [h("dt", null, "Why"), h("dd", null, job.error)],
+      h("dt", null, "iPod now"),
+      h("dd", null, o.ipodState),
+      o.fix && [h("dt", null, "How to fix"), h("dd", null, o.fix)],
+      h("dt", null, "Safe to unplug?"),
+      h("dd", null, o.safeToUnplug),
+    ),
+    o.warnings.map((w) => h("p", { class: "note" }, w)),
+    job.skipped.length > 0 &&
+      h(
+        "details",
+        { open: job.skipped.length <= 5 },
+        h("summary", null, `Missing tracks (${job.skipped.length})`),
+        h("ul", null, job.skipped.map((s) => h("li", null, h("strong", null, s.title), ` — ${s.reason}`))),
+      ),
+    h(Summary, { job }),
+    h("button", { onClick: onStartOver }, "Start another sync"),
+  );
+}
+
+/** Numbers only, no log. @param {{ job: JobSnapshot }} props */
+function Summary({ job }) {
+  return h(
+    "dl",
+    { class: "summary" },
+    h("dt", null, "Phase"),
+    h("dd", null, job.phase),
+    h("dt", null, "Tracks"),
+    h("dd", null, `${job.tracksDone} of ${job.tracksTotal} copied`),
+    h("dt", null, "Copied"),
+    h("dd", null, mb(job.bytesDone)),
+    h("dt", null, "Failures"),
+    h("dd", null, String(job.skipped.length)),
+    h("dt", null, "Retries"),
+    h("dd", null, String(job.retried.reduce((sum, r) => sum + r.retries, 0))),
+  );
 }
 
 /** @param {{ job: JobSnapshot }} props */
@@ -154,14 +199,9 @@ function Preview({ job }) {
 
 /** @param {PlanPreview} plan */
 function formatSize(plan) {
-  const mb = `${Math.round(plan.totalBytes / 1_000_000)} MB`;
-  if (plan.unknownSizes === 0) return mb;
-  return `at least ${mb} (${plural(plan.unknownSizes, "track")} without a size)`;
-}
-
-/** @param {number} n @param {string} word */
-function plural(n, word) {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
+  const size = `${Math.round(plan.totalBytes / 1_000_000)} MB`;
+  if (plan.unknownSizes === 0) return size;
+  return `at least ${size} (${plural(plan.unknownSizes, "track")} without a size)`;
 }
 
 /** @param {string} url */

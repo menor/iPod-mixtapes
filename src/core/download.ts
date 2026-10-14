@@ -23,6 +23,8 @@ export interface DownloadOptions {
   retryDelayMs?: number;
   /** Called as bytes arrive. */
   onProgress?: (p: DownloadProgress) => void;
+  /** Called after a failed attempt that will be retried. `attempt` is the one that failed. */
+  onRetry?: (attempt: number, reason: string) => void;
   /** Abort in-flight downloads (e.g. on Ctrl-C). */
   signal?: AbortSignal;
 }
@@ -49,6 +51,7 @@ export async function downloadFile(
       lastErr = err;
       await rm(destPath, { force: true }); // drop partial before retrying
       if (attempt < retries) {
+        opts.onRetry?.(attempt, err instanceof Error ? err.message : String(err));
         await delay(retryDelayMs * attempt, opts.signal);
       }
     }

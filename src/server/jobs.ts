@@ -50,7 +50,9 @@ export class Job {
       mountPath,
       tracksTotal: 0,
       tracksDone: 0,
+      bytesDone: 0,
       skipped: [],
+      retried: [],
       updatedAt: new Date().toISOString(),
     };
   }
@@ -119,11 +121,21 @@ export class Job {
             if (!current || current.index !== index) return;
             this.#update({ current: { ...current, receivedBytes, totalBytes } }, true);
           },
+          onTrackRetry: (index, track) => {
+            const others = this.#state.retried.filter((r) => r.index !== index);
+            const retries = (this.#state.retried.find((r) => r.index === index)?.retries ?? 0) + 1;
+            const current = this.#state.current && { ...this.#state.current, receivedBytes: 0 };
+            this.#update({ retried: [...others, { index, title: track.title, retries }], current });
+          },
           onTrackDone: () =>
-            this.#update({ tracksDone: this.#state.tracksDone + 1, current: undefined }),
-          onTrackSkipped: (_index, track, reason) =>
             this.#update({
-              skipped: [...this.#state.skipped, { title: track.title, reason }],
+              tracksDone: this.#state.tracksDone + 1,
+              bytesDone: this.#state.bytesDone + (this.#state.current?.receivedBytes ?? 0),
+              current: undefined,
+            }),
+          onTrackSkipped: (index, track, reason) =>
+            this.#update({
+              skipped: [...this.#state.skipped, { index, title: track.title, reason }],
               current: undefined,
             }),
         },
@@ -140,7 +152,7 @@ export class Job {
 
   #fail(err: unknown): void {
     const error = err instanceof Error ? err.message : String(err);
-    this.#update({ phase: "failed", error, current: undefined });
+    this.#update({ phase: "failed", failedIn: this.#state.phase, error, current: undefined });
   }
 
   #update(patch: Partial<JobSnapshot>, isProgress = false): void {

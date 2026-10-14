@@ -58,9 +58,15 @@ describe("downloadFile", () => {
     }) as unknown as typeof fetch;
 
     const dest = join(await freshDir(), "out.mp3");
-    await downloadFile("https://x/y.mp3", dest, { retries: 3, retryDelayMs: 1 });
+    const retries: [number, string][] = [];
+    await downloadFile("https://x/y.mp3", dest, {
+      retries: 3,
+      retryDelayMs: 1,
+      onRetry: (attempt, reason) => retries.push([attempt, reason]),
+    });
 
     assert.equal(calls, 2);
+    assert.deepEqual(retries, [[1, "network blip"]]);
     assert.equal(await readFile(dest, "utf8"), "second try");
   });
 
@@ -69,9 +75,16 @@ describe("downloadFile", () => {
       new Response("nope", { status: 500, statusText: "Server Error" })) as unknown as typeof fetch;
 
     const dest = join(await freshDir(), "out.mp3");
+    let retryCalls = 0;
     await assert.rejects(
-      downloadFile("https://x/y.mp3", dest, { retries: 2, retryDelayMs: 1 }),
+      downloadFile("https://x/y.mp3", dest, {
+        retries: 2,
+        retryDelayMs: 1,
+        onRetry: () => retryCalls++,
+      }),
       /after 2 attempt/,
     );
+    // Only attempts that will be retried report: the last failure throws instead.
+    assert.equal(retryCalls, 1);
   });
 });

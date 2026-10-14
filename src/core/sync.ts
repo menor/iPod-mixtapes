@@ -33,6 +33,8 @@ export interface SyncEvents {
   onBackup?: (backupPath: string | undefined) => void;
   onTrackStart?: (index: number, total: number, track: PlexTrackRef) => void;
   onTrackProgress?: (index: number, received: number, total?: number) => void;
+  /** A download attempt failed and will be retried. */
+  onTrackRetry?: (index: number, track: PlexTrackRef, attempt: number, reason: string) => void;
   onTrackDone?: (index: number, track: PlexTrackRef) => void;
   onTrackSkipped?: (index: number, track: PlexTrackRef, reason: string) => void;
 }
@@ -96,6 +98,7 @@ export async function syncPlaylistToIpod(input: SyncInput): Promise<SyncSummary>
     try {
       await downloadFile(track.downloadUrl, tempPath, {
         onProgress: (p) => events?.onTrackProgress?.(i, p.received, p.total),
+        onRetry: (attempt, reason) => events?.onTrackRetry?.(i, track, attempt, reason),
       });
 
       // addTrack copies the file in, probes the file for stream info, and registers

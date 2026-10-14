@@ -23,14 +23,20 @@ export interface JobSnapshot {
   mountPath: string;
   tracksTotal: number;
   tracksDone: number;
+  /** Bytes of finished tracks copied to the iPod. */
+  bytesDone: number;
   /** The track being downloaded now, if any. */
   current?: { index: number; title: string; receivedBytes: number; totalBytes?: number };
-  skipped: { title: string; reason: string }[];
+  skipped: { index: number; title: string; reason: string }[];
+  /** Tracks whose download failed at least once. A track can be here and in skipped. */
+  retried: { index: number; title: string; retries: number }[];
   backupPath?: string;
   /** What approval will do. Set when planning finishes. */
   plan?: PlanPreview;
   /** Why the job failed, when phase is "failed". */
   error?: string;
+  /** The phase the job was in when it failed. Tells what happened to the iPod. */
+  failedIn?: JobPhase;
   updatedAt: string;
 }
 

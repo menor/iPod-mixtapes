@@ -6,6 +6,7 @@
     "lib": ["es2024"],
     "types": ["node"],
     "noEmit": true,
+    "allowJs": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "strict": true,

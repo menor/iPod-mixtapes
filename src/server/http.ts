@@ -26,6 +26,7 @@ const JS = "text/javascript; charset=utf-8";
 const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/": { file: join(root, "src/web/index.html"), type: "text/html; charset=utf-8" },
   "/app/app.js": { file: join(root, "src/web/app.js"), type: JS },
+  "/app/outcome.js": { file: join(root, "src/web/outcome.js"), type: JS },
   "/vendor/preact/preact.mjs": { file: join(root, "node_modules/preact/dist/preact.mjs"), type: JS },
   "/vendor/preact/hooks.mjs": { file: join(root, "node_modules/preact/hooks/dist/hooks.mjs"), type: JS },
 };

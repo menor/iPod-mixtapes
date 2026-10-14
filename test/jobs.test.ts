@@ -112,7 +112,7 @@ describe("JobStore", () => {
     release();
     const done = await reopened.until("done");
     assert.equal(done.tracksDone, 1);
-    assert.deepEqual(done.skipped, [{ title: "Two", reason: "HTTP 404" }]);
+    assert.deepEqual(done.skipped, [{ index: 1, title: "Two", reason: "HTTP 404" }]);
   });
 
   it("refuses a second approve and a second active job", async () => {
@@ -218,7 +218,7 @@ describe("HTTP", () => {
     const page = await fetch(`${base}/`);
     assert.equal(page.status, 200);
     assert.match(await page.text(), /importmap/);
-    for (const path of ["/app/app.js", "/vendor/preact/preact.mjs", "/vendor/preact/hooks.mjs"]) {
+    for (const path of ["/app/app.js", "/app/outcome.js", "/vendor/preact/preact.mjs", "/vendor/preact/hooks.mjs"]) {
       const res = await fetch(`${base}${path}`);
       assert.equal(res.status, 200, path);
       assert.match(res.headers.get("content-type")!, /javascript/);
