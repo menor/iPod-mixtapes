@@ -16,7 +16,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPlexConfig } from "../config.ts";
+import { loadConfig } from "../config.ts";
 import { connectPlex, fetchPlaylist } from "../core/plex.ts";
 import { syncPlaylistToIpod, type SyncPhase, type SyncSummary } from "../core/sync.ts";
 
@@ -65,7 +65,7 @@ function parseArgs(argv: string[]): Args {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  const config = loadPlexConfig(args.envPath);
+  const config = loadConfig(args.envPath).plex;
 
   process.stdout.write(`Connecting to Plex at ${config.baseUrl} ...\n`);
   const server = await connectPlex(config);
