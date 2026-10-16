@@ -199,6 +199,20 @@ describe("HTTP", () => {
     release();
   });
 
+  it("turns bad requests into 4xx replies with a reason", async (t) => {
+    const { base } = await serve(t);
+    const post = (body: string) => fetch(`${base}/jobs`, { method: "POST", body });
+
+    const notJson = await post("{nope");
+    assert.equal(notJson.status, 400);
+    assert.deepEqual(await notJson.json(), { error: "Body is not valid JSON." });
+
+    assert.equal((await post("x".repeat(20_000))).status, 413);
+
+    const { id } = (await (await post(JSON.stringify({ playlist: "weezer", mount: "/ipod" }))).json()) as JobSnapshot;
+    assert.equal((await fetch(`${base}/jobs/${id}`, { method: "DELETE" })).status, 405);
+  });
+
   it("GET /jobs/latest finds the newest job, so a reopened tab can reconnect", async (t) => {
     const { base } = await serve(t);
     assert.equal((await fetch(`${base}/jobs/latest`)).status, 404);
