@@ -120,8 +120,10 @@ describe("JobStore", () => {
     const store = createJobStore(deps);
     const job = store.create("weezer", "/ipod");
     await watch(job).until("awaiting-approval");
+    assert.equal(job.isWritingToIpod(), false); // safe to stop the server here
 
     store.approve(job);
+    assert.equal(job.isWritingToIpod(), true);
     assert.throws(() => store.approve(job), JobConflictError);
     assert.throws(() => store.create("weezer", "/ipod"), JobConflictError);
 

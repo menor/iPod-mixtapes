@@ -33,6 +33,8 @@ type Listener = (snapshot: JobSnapshot) => void;
 /** Download progress fires per chunk; send at most one progress update per this window. */
 const PROGRESS_INTERVAL_MS = 250;
 
+const WRITING_PHASES: JobPhase[] = ["opening", "wiping", "downloading", "writing"];
+
 export type Job = ReturnType<typeof createJob>;
 
 function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
@@ -155,6 +157,8 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
     id: state.id,
     phase: (): JobPhase => state.phase,
     isActive: () => state.phase !== "done" && state.phase !== "failed",
+    /** Stopping now can leave the iPod erased with no track list. Same list as web/outcome.js. */
+    isWritingToIpod: () => WRITING_PHASES.includes(state.phase),
     snapshot,
     subscribe,
     plan,
