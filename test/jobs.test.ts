@@ -5,7 +5,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { PlexTrackRef } from "../src/core/plex.ts";
 import type { SyncInput, SyncSummary } from "../src/core/sync.ts";
-import { JobConflictError, JobStore, type JobDeps, type JobSnapshot } from "../src/server/jobs.ts";
+import { JobConflictError, createJobStore, type JobDeps, type JobSnapshot } from "../src/server/jobs.ts";
 import { createJobServer } from "../src/server/http.ts";
 
 const tracks: PlexTrackRef[] = [
@@ -73,7 +73,7 @@ function watch(job: { subscribe(fn: (s: JobSnapshot) => void): () => void }) {
 describe("JobStore", () => {
   it("plans, then waits: the engine never runs without approval", async () => {
     const { deps, syncCalls } = stubDeps();
-    const job = new JobStore(deps).create("weezer", "/ipod");
+    const job = createJobStore(deps).create("weezer", "/ipod");
     const w = watch(job);
 
     assert.equal(w.seen[0]!.phase, "planning");
@@ -88,7 +88,7 @@ describe("JobStore", () => {
 
   it("a folder that is not an iPod fails during planning, before any approval", async () => {
     const { deps, syncCalls } = stubDeps();
-    const job = new JobStore(deps).create("weezer", "/not-an-ipod");
+    const job = createJobStore(deps).create("weezer", "/not-an-ipod");
     const failed = await watch(job).until("failed");
     assert.match(failed.error!, /no iPod_Control/);
     assert.equal(syncCalls(), 0);
@@ -96,7 +96,7 @@ describe("JobStore", () => {
 
   it("a late subscriber gets the current state first (reconnect)", async () => {
     const { deps, release } = stubDeps();
-    const store = new JobStore(deps);
+    const store = createJobStore(deps);
     const job = store.create("weezer", "/ipod");
     await watch(job).until("awaiting-approval");
     store.approve(job);
@@ -117,7 +117,7 @@ describe("JobStore", () => {
 
   it("refuses a second approve and a second active job", async () => {
     const { deps, release, syncCalls } = stubDeps();
-    const store = new JobStore(deps);
+    const store = createJobStore(deps);
     const job = store.create("weezer", "/ipod");
     await watch(job).until("awaiting-approval");
 
@@ -133,7 +133,7 @@ describe("JobStore", () => {
 
   it("an unknown playlist fails the job with the reason", async () => {
     const { deps } = stubDeps();
-    const job = new JobStore(deps).create("missing", "/ipod");
+    const job = createJobStore(deps).create("missing", "/ipod");
     const failed = await watch(job).until("failed");
     assert.match(failed.error!, /No playlist named "missing"/);
   });
@@ -142,7 +142,7 @@ describe("JobStore", () => {
 describe("HTTP", () => {
   async function serve(t: { after(fn: () => void): void }) {
     const stub = stubDeps();
-    const server = createJobServer(new JobStore(stub.deps), { defaultMount: "./fake-ipod" });
+    const server = createJobServer(createJobStore(stub.deps), { defaultMount: "./fake-ipod" });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     t.after(() => server.close());

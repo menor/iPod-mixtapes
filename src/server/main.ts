@@ -14,7 +14,7 @@ import { countIpodTracks } from "../core/ipod.ts";
 import { connectPlex, fetchPlaylist } from "../core/plex.ts";
 import { syncPlaylistToIpod } from "../core/sync.ts";
 import { createJobServer } from "./http.ts";
-import { JobStore } from "./jobs.ts";
+import { createJobStore } from "./jobs.ts";
 
 const port = Number(process.env.PORT ?? 4573);
 const host = process.env.HOST ?? "127.0.0.1";
@@ -24,7 +24,7 @@ const config = loadPlexConfig();
 process.stdout.write(`Connecting to Plex at ${config.baseUrl} ...\n`);
 const plex = await connectPlex(config);
 
-const store = new JobStore({
+const store = createJobStore({
   plan: (playlistName) => fetchPlaylist(plex, playlistName),
   inspectIpod: countIpodTracks,
   sync: syncPlaylistToIpod,

@@ -33,59 +33,46 @@ type Listener = (snapshot: JobSnapshot) => void;
 /** Download progress fires per chunk; send at most one progress update per this window. */
 const PROGRESS_INTERVAL_MS = 250;
 
-export class Job {
-  readonly id = randomUUID();
-  #state: JobSnapshot;
-  #tracks: PlexTrackRef[] = [];
-  #listeners = new Set<Listener>();
-  #lastProgressAt = 0;
-  #deps: JobDeps;
+export type Job = ReturnType<typeof createJob>;
 
-  constructor(deps: JobDeps, playlistName: string, mountPath: string) {
-    this.#deps = deps;
-    this.#state = {
-      id: this.id,
-      phase: "planning",
-      playlistName,
-      mountPath,
-      tracksTotal: 0,
-      tracksDone: 0,
-      bytesDone: 0,
-      skipped: [],
-      retried: [],
-      updatedAt: new Date().toISOString(),
-    };
-  }
+function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
+  const state: JobSnapshot = {
+    id: randomUUID(),
+    phase: "planning",
+    playlistName,
+    mountPath,
+    tracksTotal: 0,
+    tracksDone: 0,
+    bytesDone: 0,
+    skipped: [],
+    retried: [],
+    updatedAt: new Date().toISOString(),
+  };
+  const listeners = new Set<Listener>();
+  let tracks: PlexTrackRef[] = [];
+  let lastProgressAt = 0;
 
-  get phase(): JobPhase {
-    return this.#state.phase;
-  }
-
-  get isActive(): boolean {
-    return this.#state.phase !== "done" && this.#state.phase !== "failed";
-  }
-
-  snapshot(): JobSnapshot {
-    return structuredClone(this.#state);
+  function snapshot(): JobSnapshot {
+    return structuredClone(state);
   }
 
   /** Sends the current snapshot right away, then every change. Returns an unsubscribe. */
-  subscribe(listener: Listener): () => void {
-    listener(this.snapshot());
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
+  function subscribe(listener: Listener): () => void {
+    listener(snapshot());
+    listeners.add(listener);
+    return () => listeners.delete(listener);
   }
 
   /** Fetch the plan, then stop and wait for approve(). Never touches the iPod. */
-  async plan(): Promise<void> {
+  async function plan(): Promise<void> {
     try {
       const [playlist, ipod] = await Promise.all([
-        this.#deps.plan(this.#state.playlistName),
-        this.#deps.inspectIpod(this.#state.mountPath),
+        deps.plan(state.playlistName),
+        deps.inspectIpod(state.mountPath),
       ]);
-      this.#tracks = playlist.tracks;
+      tracks = playlist.tracks;
       const sizes = playlist.tracks.map((t) => t.sizeBytes);
-      this.#update({
+      update({
         phase: "awaiting-approval",
         playlistName: playlist.title,
         tracksTotal: playlist.tracks.length,
@@ -96,113 +83,118 @@ export class Job {
         },
       });
     } catch (err) {
-      this.#fail(err);
+      fail(err);
     }
   }
 
-  /** Run the engine. The caller checks the phase first; see JobStore.approve. */
-  async run(): Promise<void> {
+  /** Run the engine. The caller checks the phase first; see the store's approve. */
+  async function run(): Promise<void> {
     // Leave awaiting-approval before the first await, so a second approve() is refused.
-    this.#update({ phase: "opening" });
+    update({ phase: "opening" });
     const tempDir = await mkdtemp(join(tmpdir(), "ipod-mixtapes-"));
     try {
-      const summary = await this.#deps.sync({
-        mountPath: this.#state.mountPath,
-        playlistName: this.#state.playlistName,
-        tracks: this.#tracks,
+      const summary = await deps.sync({
+        mountPath: state.mountPath,
+        playlistName: state.playlistName,
+        tracks,
         tempDir,
         events: {
-          onPhase: (phase) => this.#update({ phase }),
-          onBackup: (backupPath) => this.#update({ backupPath }),
+          onPhase: (phase) => update({ phase }),
+          onBackup: (backupPath) => update({ backupPath }),
           onTrackStart: (index, _total, track) =>
-            this.#update({ current: { index, title: track.title, receivedBytes: 0 } }),
+            update({ current: { index, title: track.title, receivedBytes: 0 } }),
           onTrackProgress: (index, receivedBytes, totalBytes) => {
-            const current = this.#state.current;
+            const current = state.current;
             if (!current || current.index !== index) return;
-            this.#update({ current: { ...current, receivedBytes, totalBytes } }, true);
+            update({ current: { ...current, receivedBytes, totalBytes } }, true);
           },
           onTrackRetry: (index, track) => {
-            const others = this.#state.retried.filter((r) => r.index !== index);
-            const retries = (this.#state.retried.find((r) => r.index === index)?.retries ?? 0) + 1;
-            const current = this.#state.current && { ...this.#state.current, receivedBytes: 0 };
-            this.#update({ retried: [...others, { index, title: track.title, retries }], current });
+            const others = state.retried.filter((r) => r.index !== index);
+            const retries = (state.retried.find((r) => r.index === index)?.retries ?? 0) + 1;
+            const current = state.current && { ...state.current, receivedBytes: 0 };
+            update({ retried: [...others, { index, title: track.title, retries }], current });
           },
           onTrackDone: () =>
-            this.#update({
-              tracksDone: this.#state.tracksDone + 1,
-              bytesDone: this.#state.bytesDone + (this.#state.current?.receivedBytes ?? 0),
+            update({
+              tracksDone: state.tracksDone + 1,
+              bytesDone: state.bytesDone + (state.current?.receivedBytes ?? 0),
               current: undefined,
             }),
           onTrackSkipped: (index, track, reason) =>
-            this.#update({
-              skipped: [...this.#state.skipped, { index, title: track.title, reason }],
+            update({
+              skipped: [...state.skipped, { index, title: track.title, reason }],
               current: undefined,
             }),
         },
       });
       // A partial sync still ends in "done": the iPod holds a valid DB. The skipped
       // list says what is missing; the end screen must make that loud.
-      this.#update({ phase: "done", tracksDone: summary.added, current: undefined });
+      update({ phase: "done", tracksDone: summary.added, current: undefined });
     } catch (err) {
-      this.#fail(err);
+      fail(err);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   }
 
-  #fail(err: unknown): void {
+  function fail(err: unknown): void {
     const error = err instanceof Error ? err.message : String(err);
-    this.#update({ phase: "failed", failedIn: this.#state.phase, error, current: undefined });
+    update({ phase: "failed", failedIn: state.phase, error, current: undefined });
   }
 
-  #update(patch: Partial<JobSnapshot>, isProgress = false): void {
-    Object.assign(this.#state, patch, { updatedAt: new Date().toISOString() });
+  function update(patch: Partial<JobSnapshot>, isProgress = false): void {
+    Object.assign(state, patch, { updatedAt: new Date().toISOString() });
     const now = Date.now();
-    if (isProgress && now - this.#lastProgressAt < PROGRESS_INTERVAL_MS) return;
-    this.#lastProgressAt = now;
-    const snapshot = this.snapshot();
-    for (const listener of this.#listeners) listener(snapshot);
+    if (isProgress && now - lastProgressAt < PROGRESS_INTERVAL_MS) return;
+    lastProgressAt = now;
+    const s = snapshot();
+    for (const listener of listeners) listener(s);
   }
+
+  return {
+    id: state.id,
+    phase: (): JobPhase => state.phase,
+    isActive: () => state.phase !== "done" && state.phase !== "failed",
+    snapshot,
+    subscribe,
+    plan,
+    run,
+  };
 }
 
 /** Thrown for requests that do not fit the job's current state. Maps to HTTP 409. */
 export class JobConflictError extends Error {}
 
+export type JobStore = ReturnType<typeof createJobStore>;
+
 /** All jobs. One iPod, so at most one active job at a time. */
-export class JobStore {
-  #jobs = new Map<string, Job>();
-  #deps: JobDeps;
+export function createJobStore(deps: JobDeps) {
+  const jobs = new Map<string, Job>();
 
-  constructor(deps: JobDeps) {
-    this.#deps = deps;
-  }
+  return {
+    get: (id: string): Job | undefined => jobs.get(id),
 
-  get(id: string): Job | undefined {
-    return this.#jobs.get(id);
-  }
+    /** The newest job. A freshly opened tab uses it to find a running sync. */
+    latest: (): Job | undefined => [...jobs.values()].at(-1),
 
-  /** The newest job. A freshly opened tab uses it to find a running sync. */
-  latest(): Job | undefined {
-    return [...this.#jobs.values()].at(-1);
-  }
+    /** Create a job and start planning in the background. */
+    create(playlistName: string, mountPath: string): Job {
+      const active = [...jobs.values()].find((j) => j.isActive());
+      if (active) {
+        throw new JobConflictError(`Job ${active.id} is still ${active.phase()}.`);
+      }
+      const job = createJob(deps, playlistName, mountPath);
+      jobs.set(job.id, job);
+      void job.plan();
+      return job;
+    },
 
-  /** Create a job and start planning in the background. */
-  create(playlistName: string, mountPath: string): Job {
-    const active = [...this.#jobs.values()].find((j) => j.isActive);
-    if (active) {
-      throw new JobConflictError(`Job ${active.id} is still ${active.phase}.`);
-    }
-    const job = new Job(this.#deps, playlistName, mountPath);
-    this.#jobs.set(job.id, job);
-    void job.plan();
-    return job;
-  }
-
-  /** Start the sync. Only a job waiting for approval can start. */
-  approve(job: Job): void {
-    if (job.phase !== "awaiting-approval") {
-      throw new JobConflictError(`Job ${job.id} is ${job.phase}, not awaiting-approval.`);
-    }
-    void job.run();
-  }
+    /** Start the sync. Only a job waiting for approval can start. */
+    approve(job: Job): void {
+      if (job.phase() !== "awaiting-approval") {
+        throw new JobConflictError(`Job ${job.id} is ${job.phase()}, not awaiting-approval.`);
+      }
+      void job.run();
+    },
+  };
 }

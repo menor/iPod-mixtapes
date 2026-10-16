@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { PlexTrackRef } from "../src/core/plex.ts";
 import type { SyncInput, SyncSummary } from "../src/core/sync.ts";
-import { JobStore, type JobDeps, type JobSnapshot } from "../src/server/jobs.ts";
+import { createJobStore, type JobDeps, type JobSnapshot } from "../src/server/jobs.ts";
 import { describeDoingNow, describeOutcome, isWritingToIpod } from "../src/web/outcome.js";
 
 const track = (n: number): PlexTrackRef => ({
@@ -14,7 +14,7 @@ const tracks = [track(1), track(2), track(3)];
 
 /** Run a job to its end with a stub engine, approving it on the way. */
 async function runToEnd(sync: JobDeps["sync"]): Promise<JobSnapshot> {
-  const store = new JobStore({
+  const store = createJobStore({
     plan: async () => ({ title: "Mix", tracks }),
     inspectIpod: async () => ({ trackCount: 5 }),
     sync,
