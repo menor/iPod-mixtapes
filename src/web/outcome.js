@@ -8,7 +8,6 @@
  */
 
 /** @typedef {import("../shared/job.ts").JobSnapshot} JobSnapshot */
-/** @typedef {import("../shared/job.ts").JobPhase} JobPhase */
 
 /**
  * @typedef {object} Outcome
@@ -22,14 +21,6 @@
 
 const SAFE = "Yes, after you eject it in Finder.";
 
-/** Phases in which the engine may be writing to the iPod. */
-const WRITING_PHASES = ["opening", "wiping", "downloading", "writing"];
-
-/** @param {JobPhase} phase */
-export function isWritingToIpod(phase) {
-  return WRITING_PHASES.includes(phase);
-}
-
 /**
  * The end screen, for a job that is done or failed.
  * @param {JobSnapshot} job
@@ -41,7 +32,7 @@ export function describeOutcome(job) {
   const warnings = recovered.length
     ? [`${plural(recovered.length, "track")} needed retries, then copied.`]
     : [];
-  if (job.phase === "failed") return { ...describeFailure(job), safeToUnplug: SAFE, warnings };
+  if (job.status === "failed") return { ...describeFailure(job), safeToUnplug: SAFE, warnings };
 
   const erased = job.plan?.ipodTracksNow ? "Old music erased. " : "";
   const missing = job.skipped.length;
@@ -65,44 +56,38 @@ export function describeOutcome(job) {
 }
 
 /**
- * What the iPod holds after a failure depends on how far the engine got.
+ * What the iPod holds after a failure: the job's ipod state, refined by the step.
  * @param {JobSnapshot} job
  * @returns {{ tone: "bad", headline: string, ipodState: string, fix: string }}
  */
 function describeFailure(job) {
   const headline = "Sync failed";
-  switch (job.failedIn) {
-    case "wiping":
-      return {
-        tone: "bad",
-        headline,
-        ipodState: "Unknown. The wipe may have stopped partway, so some old music may be gone.",
-        fix: "Run the sync again. It finishes the wipe and copies every track.",
-      };
-    case "downloading":
-    case "writing":
-      return {
-        tone: "bad",
-        headline,
-        ipodState:
-          "Old music erased. New tracks were copied, but the track list was not saved, so the iPod shows no music.",
-        fix: "Run the sync again.",
-      };
-    case "opening":
-      return {
-        tone: "bad",
-        headline,
-        ipodState: "Unchanged. Nothing was erased.",
-        fix: `Check that the iPod is mounted at ${job.mountPath}, then try again.`,
-      };
-    default:
-      return {
-        tone: "bad",
-        headline,
-        ipodState: "Unchanged. Nothing was erased.",
-        fix: "Check the playlist name and the iPod folder, then try again.",
-      };
+  if (job.ipod === "untouched") {
+    return {
+      tone: "bad",
+      headline,
+      ipodState: "Unchanged. Nothing was erased.",
+      fix:
+        job.step === "opening"
+          ? `Check that the iPod is mounted at ${job.mountPath}, then try again.`
+          : "Check the playlist name and the iPod folder, then try again.",
+    };
   }
+  if (job.step === "wiping") {
+    return {
+      tone: "bad",
+      headline,
+      ipodState: "Unknown. The wipe may have stopped partway, so some old music may be gone.",
+      fix: "Run the sync again. It finishes the wipe and copies every track.",
+    };
+  }
+  return {
+    tone: "bad",
+    headline,
+    ipodState:
+      "Old music erased. New tracks were copied, but the track list was not saved, so the iPod shows no music.",
+    fix: "Run the sync again.",
+  };
 }
 
 /** @param {JobSnapshot["skipped"]} skipped */
@@ -128,7 +113,7 @@ function fixForSkipped(skipped) {
  * @param {JobSnapshot} job
  */
 export function describeDoingNow(job) {
-  switch (job.phase) {
+  switch (job.step) {
     case "opening":
       return "Opening the iPod";
     case "wiping":
@@ -146,7 +131,7 @@ export function describeDoingNow(job) {
     case "writing":
       return "Writing the track list to the iPod";
     default:
-      return job.phase;
+      return job.step ?? job.status;
   }
 }
 

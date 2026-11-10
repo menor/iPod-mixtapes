@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { PlexTrackRef } from "../src/core/plex.ts";
 import type { SyncInput, SyncSummary } from "../src/core/sync.ts";
 import { createJobStore, type JobDeps, type JobSnapshot } from "../src/server/jobs.ts";
-import { describeDoingNow, describeOutcome, isWritingToIpod } from "../src/web/outcome.js";
+import { describeDoingNow, describeOutcome } from "../src/web/outcome.js";
 
 const track = (n: number): PlexTrackRef => ({
   ratingKey: String(n),
@@ -22,8 +22,8 @@ async function runToEnd(sync: JobDeps["sync"]): Promise<JobSnapshot> {
   const job = store.create("Mix", "/Volumes/IPOD");
   return new Promise((resolve) => {
     job.subscribe((s) => {
-      if (s.phase === "awaiting-approval") store.approve(job);
-      if (s.phase === "done" || s.phase === "failed") resolve(s);
+      if (s.status === "awaiting-approval") job.approve();
+      if (s.status === "done" || s.status === "failed") resolve(s);
     });
   });
 }
@@ -58,7 +58,7 @@ describe("end screen", () => {
       return summary(input, 2);
     });
 
-    assert.equal(end.phase, "done");
+    assert.equal(end.status, "done");
     assert.equal(end.skipped.length, 1);
     assert.deepEqual(end.retried, [
       { index: 1, title: "Track 2", retries: 2 },
@@ -79,8 +79,9 @@ describe("end screen", () => {
       input.events!.onPhase?.("writing");
       throw new Error("EIO: i/o error, write");
     });
-    assert.equal(end.phase, "failed");
-    assert.equal(end.failedIn, "writing");
+    assert.equal(end.status, "failed");
+    assert.equal(end.step, "writing");
+    assert.equal(end.ipod, "erased");
     const o = describeOutcome(end);
     assert.equal(o.tone, "bad");
     assert.match(o.ipodState, /iPod shows no music/);
@@ -91,7 +92,8 @@ describe("end screen", () => {
 describe("describeOutcome", () => {
   const base: JobSnapshot = {
     id: "j",
-    phase: "done",
+    status: "done",
+    ipod: "synced",
     playlistName: "Mix",
     mountPath: "/Volumes/IPOD",
     tracksTotal: 3,
@@ -129,35 +131,37 @@ describe("describeOutcome", () => {
   });
 
   it("a failure while opening leaves the iPod unchanged", () => {
-    const o = describeOutcome({ ...base, phase: "failed", failedIn: "opening", tracksDone: 0 });
+    const o = describeOutcome({ ...base, status: "failed", step: "opening", ipod: "untouched", tracksDone: 0 });
     assert.equal(o.ipodState, "Unchanged. Nothing was erased.");
     assert.match(o.fix!, /mounted at \/Volumes\/IPOD/);
   });
 
+  it("a failure while planning leaves the iPod unchanged and points at the inputs", () => {
+    const o = describeOutcome({ ...base, status: "failed", step: undefined, ipod: "untouched", tracksDone: 0 });
+    assert.equal(o.ipodState, "Unchanged. Nothing was erased.");
+    assert.match(o.fix!, /playlist name/);
+  });
+
   it("a failure while wiping says the state is unknown", () => {
-    const o = describeOutcome({ ...base, phase: "failed", failedIn: "wiping", tracksDone: 0 });
+    const o = describeOutcome({ ...base, status: "failed", step: "wiping", ipod: "erased", tracksDone: 0 });
     assert.match(o.ipodState, /^Unknown/);
   });
 });
 
 describe("live screen", () => {
-  it("only phases that touch the iPod say do not unplug", () => {
-    assert.equal(isWritingToIpod("awaiting-approval"), false);
-    assert.equal(isWritingToIpod("downloading"), true);
-    assert.equal(isWritingToIpod("done"), false);
-  });
-
   it("the doing-now line names the track and its progress", () => {
     const line = describeDoingNow({
       ...({} as JobSnapshot),
-      phase: "downloading",
+      status: "running",
+      step: "downloading",
       tracksTotal: 25,
       current: { index: 6, title: "Psychotropia", receivedBytes: 3_200_000, totalBytes: 8_100_000 },
     });
     assert.equal(line, "Downloading 7 of 25: Psychotropia — 3.2 of 8.1 MB");
     const starting = describeDoingNow({
       ...({} as JobSnapshot),
-      phase: "downloading",
+      status: "running",
+      step: "downloading",
       tracksTotal: 25,
       current: { index: 6, title: "Psychotropia", receivedBytes: 0 },
     });
