@@ -110,7 +110,7 @@ async function handle(
   }
 
   if (req.method === "POST" && action === "/approve") {
-    store.approve(job);
+    job.approve();
     return sendJson(res, 202, job.snapshot());
   }
 

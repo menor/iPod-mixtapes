@@ -56,17 +56,21 @@ function stubDeps() {
   return { deps, release, syncCalls: () => syncCalls };
 }
 
+/** True when the snapshot has this status, or is running this step. */
+const isAt = (s: JobSnapshot, at: string) =>
+  s.status === at || (s.status === "running" && s.step === at);
+
 /** Collects every snapshot a subscriber sees, and resolves when one matches. */
 function watch(job: { subscribe(fn: (s: JobSnapshot) => void): () => void }) {
   const seen: JobSnapshot[] = [];
-  const waiters: { phase: string; resolve: (s: JobSnapshot) => void }[] = [];
+  const waiters: { at: string; resolve: (s: JobSnapshot) => void }[] = [];
   const unsubscribe = job.subscribe((s) => {
     seen.push(s);
-    for (const w of waiters) if (w.phase === s.phase) w.resolve(s);
+    for (const w of waiters) if (isAt(s, w.at)) w.resolve(s);
   });
-  const until = (phase: string) =>
-    seen.find((s) => s.phase === phase) ??
-    new Promise<JobSnapshot>((resolve) => waiters.push({ phase, resolve }));
+  const until = (at: string) =>
+    seen.find((s) => isAt(s, at)) ??
+    new Promise<JobSnapshot>((resolve) => waiters.push({ at, resolve }));
   return { seen, until, unsubscribe };
 }
 
@@ -76,8 +80,9 @@ describe("JobStore", () => {
     const job = createJobStore(deps).create("weezer", "/ipod");
     const w = watch(job);
 
-    assert.equal(w.seen[0]!.phase, "planning");
+    assert.equal(w.seen[0]!.status, "planning");
     const ready = await w.until("awaiting-approval");
+    assert.equal(ready.ipod, "untouched");
     assert.equal(ready.playlistName, "Weezer");
     assert.equal(ready.tracksTotal, 2);
     // Track "Two" has no size, so the total is a lower bound and says so.
@@ -91,6 +96,8 @@ describe("JobStore", () => {
     const job = createJobStore(deps).create("weezer", "/not-an-ipod");
     const failed = await watch(job).until("failed");
     assert.match(failed.error!, /no iPod_Control/);
+    assert.equal(failed.step, undefined); // failed before the engine ran
+    assert.equal(failed.ipod, "untouched");
     assert.equal(syncCalls(), 0);
   });
 
@@ -99,12 +106,14 @@ describe("JobStore", () => {
     const store = createJobStore(deps);
     const job = store.create("weezer", "/ipod");
     await watch(job).until("awaiting-approval");
-    store.approve(job);
+    job.approve();
     await watch(job).until("downloading");
 
     // "Reopen the tab" mid-sync: the first snapshot already shows progress.
     const reopened = watch(job);
-    assert.equal(reopened.seen[0]!.phase, "downloading");
+    assert.equal(reopened.seen[0]!.status, "running");
+    assert.equal(reopened.seen[0]!.step, "downloading");
+    assert.equal(reopened.seen[0]!.ipod, "erased");
     assert.equal(reopened.seen[0]!.tracksDone, 1);
     assert.equal(reopened.seen[0]!.current?.title, "Two");
     assert.equal(reopened.seen[0]!.backupPath, "/ipod/iTunesDB.backup");
@@ -112,6 +121,8 @@ describe("JobStore", () => {
     release();
     const done = await reopened.until("done");
     assert.equal(done.tracksDone, 1);
+    assert.equal(done.ipod, "synced");
+    assert.equal(done.step, undefined);
     assert.deepEqual(done.skipped, [{ index: 1, title: "Two", reason: "HTTP 404" }]);
   });
 
@@ -122,9 +133,9 @@ describe("JobStore", () => {
     await watch(job).until("awaiting-approval");
     assert.equal(job.isWritingToIpod(), false); // safe to stop the server here
 
-    store.approve(job);
+    job.approve();
     assert.equal(job.isWritingToIpod(), true);
-    assert.throws(() => store.approve(job), JobConflictError);
+    assert.throws(() => job.approve(), JobConflictError); // the job guards its own rules
     assert.throws(() => store.create("weezer", "/ipod"), JobConflictError);
 
     release();
@@ -177,7 +188,7 @@ describe("HTTP", () => {
     await new Promise((r) => setTimeout(r, 20)); // let planning finish
 
     const snapshot = await firstEvent(base, id);
-    assert.equal(snapshot.phase, "awaiting-approval");
+    assert.equal(snapshot.status, "awaiting-approval");
     assert.equal(snapshot.tracksTotal, 2);
     assert.equal(snapshot.plan?.ipodTracksNow, 7);
 

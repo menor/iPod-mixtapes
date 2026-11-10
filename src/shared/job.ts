@@ -5,19 +5,32 @@
 
 /**
  * The engine's phases, in order. A fixed set so callers can map them (CLI labels,
- * server job phases). Backup and wipe are one phase: podscribe's wipeAll does both.
+ * the job's step). Backup and wipe are one phase: podscribe's wipeAll does both.
  */
 export type SyncPhase = "opening" | "wiping" | "downloading" | "writing";
 
 /**
- * planning → awaiting-approval → opening → wiping → downloading → writing → done
- * Any step can end in failed. Nothing touches the iPod before approval.
+ * planning → awaiting-approval → running → done
+ * Any status before done can end in failed. Nothing touches the iPod before approval.
+ * While running, `step` says which SyncPhase the engine is in.
  */
-export type JobPhase = "planning" | "awaiting-approval" | SyncPhase | "done" | "failed";
+export type JobStatus = "planning" | "awaiting-approval" | "running" | "done" | "failed";
+
+/**
+ * What the job has done to the iPod. An actor can restart; the iPod cannot, so the
+ * job records the outside effect instead of making the end screen guess it.
+ *   untouched — nothing erased yet
+ *   erased    — the wipe started: old music may be partly or fully gone
+ *   synced    — a fresh track list was saved
+ */
+export type IpodState = "untouched" | "erased" | "synced";
 
 export interface JobSnapshot {
   id: string;
-  phase: JobPhase;
+  status: JobStatus;
+  /** The engine step while running; after a failure, the step it failed in. */
+  step?: SyncPhase;
+  ipod: IpodState;
   /** The playlist name as requested; replaced by Plex's exact title after planning. */
   playlistName: string;
   mountPath: string;
@@ -33,10 +46,8 @@ export interface JobSnapshot {
   backupPath?: string;
   /** What approval will do. Set when planning finishes. */
   plan?: PlanPreview;
-  /** Why the job failed, when phase is "failed". */
+  /** Why the job failed, when status is "failed". */
   error?: string;
-  /** The phase the job was in when it failed. Tells what happened to the iPod. */
-  failedIn?: JobPhase;
   updatedAt: string;
 }
 

@@ -1,7 +1,7 @@
 /**
  * Sync jobs, kept in server memory.
  *
- * A job is one "sync playlist P to the iPod at M" request. It has an id and a phase,
+ * A job is one "sync playlist P to the iPod at M" request. It has an id and a status,
  * and it outlives any browser tab watching it. Watchers subscribe and receive the
  * FULL snapshot on every change — first the current state, then each update. That
  * one rule is what makes close-the-tab-and-reopen work.
@@ -15,9 +15,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PlexPlaylistRef, PlexTrackRef } from "../core/plex.ts";
 import type { SyncInput, SyncSummary } from "../core/sync.ts";
-import type { JobPhase, JobSnapshot } from "../shared/job.ts";
+import type { JobSnapshot, JobStatus } from "../shared/job.ts";
 
-export type { JobPhase, JobSnapshot, PlanPreview } from "../shared/job.ts";
+export type { IpodState, JobSnapshot, JobStatus, PlanPreview } from "../shared/job.ts";
 
 export interface JobDeps {
   /** Look up the playlist and its tracks. Throws when it does not exist. */
@@ -33,14 +33,16 @@ type Listener = (snapshot: JobSnapshot) => void;
 /** Download progress fires per chunk; send at most one progress update per this window. */
 const PROGRESS_INTERVAL_MS = 250;
 
-const WRITING_PHASES: JobPhase[] = ["opening", "wiping", "downloading", "writing"];
+/** Thrown for requests that do not fit the job's current state. Maps to HTTP 409. */
+export class JobConflictError extends Error {}
 
 export type Job = ReturnType<typeof createJob>;
 
 function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
   const state: JobSnapshot = {
     id: randomUUID(),
-    phase: "planning",
+    status: "planning",
+    ipod: "untouched",
     playlistName,
     mountPath,
     tracksTotal: 0,
@@ -75,7 +77,7 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
       tracks = playlist.tracks;
       const sizes = playlist.tracks.map((t) => t.sizeBytes);
       update({
-        phase: "awaiting-approval",
+        status: "awaiting-approval",
         playlistName: playlist.title,
         tracksTotal: playlist.tracks.length,
         plan: {
@@ -89,10 +91,17 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
     }
   }
 
-  /** Run the engine. The caller checks the phase first; see the store's approve. */
+  /** Start the sync. Only a job waiting for approval can start. */
+  function approve(): void {
+    if (state.status !== "awaiting-approval") {
+      throw new JobConflictError(`Job ${state.id} is ${state.status}, not awaiting-approval.`);
+    }
+    void run();
+  }
+
   async function run(): Promise<void> {
     // Leave awaiting-approval before the first await, so a second approve() is refused.
-    update({ phase: "opening" });
+    update({ status: "running" });
     const tempDir = await mkdtemp(join(tmpdir(), "ipod-mixtapes-"));
     try {
       const summary = await deps.sync({
@@ -101,7 +110,8 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
         tracks,
         tempDir,
         events: {
-          onPhase: (phase) => update({ phase }),
+          // Every step after opening writes to the iPod, so old music may be gone.
+          onPhase: (step) => update(step === "opening" ? { step } : { step, ipod: "erased" }),
           onBackup: (backupPath) => update({ backupPath }),
           onTrackStart: (index, _total, track) =>
             update({ current: { index, title: track.title, receivedBytes: 0 } }),
@@ -131,7 +141,13 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
       });
       // A partial sync still ends in "done": the iPod holds a valid DB. The skipped
       // list says what is missing; the end screen must make that loud.
-      update({ phase: "done", tracksDone: summary.added, current: undefined });
+      update({
+        status: "done",
+        step: undefined,
+        ipod: "synced",
+        tracksDone: summary.added,
+        current: undefined,
+      });
     } catch (err) {
       fail(err);
     } finally {
@@ -141,7 +157,8 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
 
   function fail(err: unknown): void {
     const error = err instanceof Error ? err.message : String(err);
-    update({ phase: "failed", failedIn: state.phase, error, current: undefined });
+    // Keep `step`: it says where the engine stopped.
+    update({ status: "failed", error, current: undefined });
   }
 
   function update(patch: Partial<JobSnapshot>, isProgress = false): void {
@@ -155,19 +172,16 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
 
   return {
     id: state.id,
-    phase: (): JobPhase => state.phase,
-    isActive: () => state.phase !== "done" && state.phase !== "failed",
-    /** Stopping now can leave the iPod erased with no track list. Same list as web/outcome.js. */
-    isWritingToIpod: () => WRITING_PHASES.includes(state.phase),
+    status: (): JobStatus => state.status,
+    isActive: () => state.status !== "done" && state.status !== "failed",
+    /** Stopping now can leave the iPod erased with no track list. */
+    isWritingToIpod: () => state.status === "running",
     snapshot,
     subscribe,
     plan,
-    run,
+    approve,
   };
 }
-
-/** Thrown for requests that do not fit the job's current state. Maps to HTTP 409. */
-export class JobConflictError extends Error {}
 
 export type JobStore = ReturnType<typeof createJobStore>;
 
@@ -185,20 +199,12 @@ export function createJobStore(deps: JobDeps) {
     create(playlistName: string, mountPath: string): Job {
       const active = [...jobs.values()].find((j) => j.isActive());
       if (active) {
-        throw new JobConflictError(`Job ${active.id} is still ${active.phase()}.`);
+        throw new JobConflictError(`Job ${active.id} is still ${active.status()}.`);
       }
       const job = createJob(deps, playlistName, mountPath);
       jobs.set(job.id, job);
       void job.plan();
       return job;
-    },
-
-    /** Start the sync. Only a job waiting for approval can start. */
-    approve(job: Job): void {
-      if (job.phase() !== "awaiting-approval") {
-        throw new JobConflictError(`Job ${job.id} is ${job.phase()}, not awaiting-approval.`);
-      }
-      void job.run();
     },
   };
 }

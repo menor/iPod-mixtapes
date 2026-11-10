@@ -40,11 +40,11 @@ function onSignal(): void {
   if (!job?.isWritingToIpod()) return stop(0);
   waiting = true;
   process.stdout.write(
-    `\nA sync is ${job.phase()}. Stopping now can leave the iPod with no music.\n` +
+    `\nA sync is ${job.snapshot().step ?? "starting"}. Stopping now can leave the iPod with no music.\n` +
       `Waiting for it to finish. Press Ctrl-C again to stop now.\n`,
   );
   job.subscribe((s) => {
-    if (s.phase === "done" || s.phase === "failed") stop(0);
+    if (s.status === "done" || s.status === "failed") stop(0);
   });
 }
 

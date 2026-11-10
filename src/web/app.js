@@ -6,7 +6,7 @@
  */
 import { h, render } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { describeDoingNow, describeOutcome, isWritingToIpod, mb, plural } from "./outcome.js";
+import { describeDoingNow, describeOutcome, mb, plural } from "./outcome.js";
 
 /** @typedef {import("../shared/job.ts").JobSnapshot} JobSnapshot */
 /** @typedef {import("../shared/job.ts").PlanPreview} PlanPreview */
@@ -75,7 +75,7 @@ function NewSyncForm({ defaultMount, onCreated }) {
 
 /** @param {{ job: JobSnapshot, onStartOver: () => void }} props */
 function JobScreen({ job, onStartOver }) {
-  switch (job.phase) {
+  switch (job.status) {
     case "planning":
       return h("p", null, `Reading playlist "${job.playlistName}" and the iPod…`);
     case "awaiting-approval":
@@ -83,7 +83,7 @@ function JobScreen({ job, onStartOver }) {
     case "done":
     case "failed":
       return h(EndScreen, { job, onStartOver });
-    default:
+    case "running":
       return h(LiveScreen, { job });
   }
 }
@@ -93,7 +93,7 @@ function LiveScreen({ job }) {
   return h(
     "div",
     null,
-    isWritingToIpod(job.phase) && h("p", { class: "warning" }, "Do not unplug the iPod."),
+    h("p", { class: "warning" }, "Do not unplug the iPod."),
     h("p", { class: "doing-now" }, describeDoingNow(job)),
     h(Summary, { job }),
   );
@@ -134,8 +134,8 @@ function Summary({ job }) {
   return h(
     "dl",
     { class: "summary" },
-    h("dt", null, "Phase"),
-    h("dd", null, job.phase),
+    h("dt", null, "Status"),
+    h("dd", null, job.status === "running" ? `running: ${job.step ?? "starting"}` : job.status),
     h("dt", null, "Tracks"),
     h("dd", null, `${job.tracksDone} of ${job.tracksTotal} copied`),
     h("dt", null, "Copied"),
