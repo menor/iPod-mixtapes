@@ -17,6 +17,7 @@ async function runToEnd(sync: JobDeps["sync"]): Promise<JobSnapshot> {
   const store = createJobStore({
     plan: async () => ({ title: "Mix", tracks }),
     inspectIpod: async () => ({ trackCount: 5 }),
+    freeTempBytes: async () => 1_000_000_000,
     sync,
   });
   const job = store.create("Mix", "/Volumes/IPOD");
@@ -43,7 +44,6 @@ describe("end screen", () => {
     const end = await runToEnd(async (input) => {
       const ev = input.events!;
       ev.onPhase?.("opening");
-      ev.onPhase?.("wiping");
       ev.onPhase?.("downloading");
       ev.onTrackStart?.(0, 3, tracks[0]!);
       ev.onTrackDone?.(0, tracks[0]!);
@@ -54,6 +54,8 @@ describe("end screen", () => {
       ev.onTrackStart?.(2, 3, tracks[2]!);
       ev.onTrackRetry?.(2, tracks[2]!, 1, "socket hang up");
       ev.onTrackDone?.(2, tracks[2]!);
+      ev.onPhase?.("wiping");
+      ev.onPhase?.("copying");
       ev.onPhase?.("writing");
       return summary(input, 2);
     });
@@ -74,8 +76,22 @@ describe("end screen", () => {
     assert.match(o.safeToUnplug, /^Yes/);
   });
 
+  it("a failure while downloading leaves the iPod unchanged", async () => {
+    const end = await runToEnd(async (input) => {
+      input.events!.onPhase?.("opening");
+      input.events!.onPhase?.("downloading");
+      throw new Error("No track downloaded. The iPod was not changed.");
+    });
+    assert.equal(end.step, "downloading");
+    assert.equal(end.ipod, "untouched");
+    const o = describeOutcome(end);
+    assert.equal(o.ipodState, "Unchanged. Nothing was erased.");
+    assert.match(o.fix!, /Plex/);
+  });
+
   it("a failure while writing says the iPod shows no music", async () => {
     const end = await runToEnd(async (input) => {
+      input.events!.onPhase?.("wiping");
       input.events!.onPhase?.("writing");
       throw new Error("EIO: i/o error, write");
     });
@@ -101,7 +117,7 @@ describe("describeOutcome", () => {
     bytesDone: 30_000_000,
     skipped: [],
     retried: [],
-    plan: { totalBytes: 30_000_000, unknownSizes: 0, ipodTracksNow: 5 },
+    plan: { totalBytes: 30_000_000, unknownSizes: 0, ipodTracksNow: 5, freeTempBytes: 1_000_000_000 },
     updatedAt: "",
   };
 
@@ -136,10 +152,10 @@ describe("describeOutcome", () => {
     assert.match(o.fix!, /mounted at \/Volumes\/IPOD/);
   });
 
-  it("a failure while planning leaves the iPod unchanged and points at the inputs", () => {
+  it("a failure while planning leaves the iPod unchanged and points at the reason", () => {
     const o = describeOutcome({ ...base, status: "failed", step: undefined, ipod: "untouched", tracksDone: 0 });
     assert.equal(o.ipodState, "Unchanged. Nothing was erased.");
-    assert.match(o.fix!, /playlist name/);
+    assert.match(o.fix!, /reason above/);
   });
 
   it("a failure while wiping says the state is unknown", () => {
@@ -166,5 +182,10 @@ describe("live screen", () => {
       current: { index: 6, title: "Psychotropia", receivedBytes: 0 },
     });
     assert.equal(starting, "Downloading 7 of 25: Psychotropia");
+  });
+
+  it("names the copy step", () => {
+    const line = describeDoingNow({ ...({} as JobSnapshot), status: "running", step: "copying" });
+    assert.equal(line, "Copying the tracks to the iPod");
   });
 });

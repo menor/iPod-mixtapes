@@ -102,8 +102,9 @@ async function main(): Promise<void> {
 
 const PHASE_LABELS: Record<SyncPhase, string> = {
   opening: "opening iPod",
-  wiping: "backing up + wiping iPod",
   downloading: "downloading tracks",
+  wiping: "backing up + wiping iPod",
+  copying: "copying tracks to iPod",
   writing: "writing iTunesDB",
 };
 

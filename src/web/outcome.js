@@ -67,10 +67,7 @@ function describeFailure(job) {
       tone: "bad",
       headline,
       ipodState: "Unchanged. Nothing was erased.",
-      fix:
-        job.step === "opening"
-          ? `Check that the iPod is mounted at ${job.mountPath}, then try again.`
-          : "Check the playlist name and the iPod folder, then try again.",
+      fix: fixWhileUntouched(job),
     };
   }
   if (job.step === "wiping") {
@@ -88,6 +85,18 @@ function describeFailure(job) {
       "Old music erased. New tracks were copied, but the track list was not saved, so the iPod shows no music.",
     fix: "Run the sync again.",
   };
+}
+
+/** @param {JobSnapshot} job */
+function fixWhileUntouched(job) {
+  switch (job.step) {
+    case "opening":
+      return `Check that the iPod is mounted at ${job.mountPath}, then try again.`;
+    case "downloading":
+      return "Check that Plex is running and reachable, then try again.";
+    default:
+      return "Fix the reason above, then try again.";
+  }
 }
 
 /** @param {JobSnapshot["skipped"]} skipped */
@@ -117,7 +126,9 @@ export function describeDoingNow(job) {
     case "opening":
       return "Opening the iPod";
     case "wiping":
-      return "Erasing the iPod and backing up its track list";
+      return "Backing up the iPod's track list and erasing it";
+    case "copying":
+      return "Copying the tracks to the iPod";
     case "downloading": {
       const c = job.current;
       if (!c) return `Downloading: ${job.tracksDone} of ${job.tracksTotal} done`;

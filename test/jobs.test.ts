@@ -17,7 +17,7 @@ const tracks: PlexTrackRef[] = [
  * A stub engine. It reports phases like the real one, then pauses after the first
  * track until release() is called — so a test can look at a job mid-sync.
  */
-function stubDeps() {
+function stubDeps(freeTempBytes = 1_000_000_000) {
   let syncCalls = 0;
   let release!: () => void;
   const paused = new Promise<void>((r) => (release = r));
@@ -30,18 +30,20 @@ function stubDeps() {
       if (mount === "/not-an-ipod") throw new Error("no iPod_Control under /not-an-ipod");
       return { trackCount: 7 };
     },
+    freeTempBytes: async () => freeTempBytes,
     sync: async (input: SyncInput): Promise<SyncSummary> => {
       syncCalls++;
       const ev = input.events!;
       ev.onPhase?.("opening");
-      ev.onPhase?.("wiping");
-      ev.onBackup?.("/ipod/iTunesDB.backup");
       ev.onPhase?.("downloading");
       ev.onTrackStart?.(0, 2, tracks[0]!);
       ev.onTrackDone?.(0, tracks[0]!);
       ev.onTrackStart?.(1, 2, tracks[1]!);
       await paused;
       ev.onTrackSkipped?.(1, tracks[1]!, "HTTP 404");
+      ev.onPhase?.("wiping");
+      ev.onBackup?.("/ipod/iTunesDB.backup");
+      ev.onPhase?.("copying");
       ev.onPhase?.("writing");
       return {
         playlistName: input.playlistName,
@@ -86,7 +88,7 @@ describe("JobStore", () => {
     assert.equal(ready.playlistName, "Weezer");
     assert.equal(ready.tracksTotal, 2);
     // Track "Two" has no size, so the total is a lower bound and says so.
-    assert.deepEqual(ready.plan, { totalBytes: 3_000_000, unknownSizes: 1, ipodTracksNow: 7 });
+    assert.deepEqual(ready.plan, { totalBytes: 3_000_000, unknownSizes: 1, ipodTracksNow: 7, freeTempBytes: 1_000_000_000 });
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(syncCalls(), 0);
   });
@@ -113,13 +115,15 @@ describe("JobStore", () => {
     const reopened = watch(job);
     assert.equal(reopened.seen[0]!.status, "running");
     assert.equal(reopened.seen[0]!.step, "downloading");
-    assert.equal(reopened.seen[0]!.ipod, "erased");
+    assert.equal(reopened.seen[0]!.ipod, "untouched"); // downloads come before the erase
     assert.equal(reopened.seen[0]!.tracksDone, 1);
     assert.equal(reopened.seen[0]!.current?.title, "Two");
-    assert.equal(reopened.seen[0]!.backupPath, "/ipod/iTunesDB.backup");
 
     release();
+    const erased = await reopened.until("wiping");
+    assert.equal(erased.ipod, "erased");
     const done = await reopened.until("done");
+    assert.equal(done.backupPath, "/ipod/iTunesDB.backup");
     assert.equal(done.tracksDone, 1);
     assert.equal(done.ipod, "synced");
     assert.equal(done.step, undefined);
@@ -134,14 +138,40 @@ describe("JobStore", () => {
     assert.equal(job.isWritingToIpod(), false); // safe to stop the server here
 
     job.approve();
-    assert.equal(job.isWritingToIpod(), true);
     assert.throws(() => job.approve(), JobConflictError); // the job guards its own rules
     assert.throws(() => store.create("weezer", "/ipod"), JobConflictError);
+    await watch(job).until("downloading");
+    assert.equal(job.isWritingToIpod(), false); // nothing erased yet, still safe to stop
 
     release();
     await watch(job).until("done");
     assert.equal(syncCalls(), 1);
     assert.ok(store.create("weezer", "/ipod")); // a finished job no longer blocks
+  });
+
+  it("isWritingToIpod is true from the erase until the end", async () => {
+    const { deps, release } = stubDeps();
+    const job = createJobStore(deps).create("weezer", "/ipod");
+    await watch(job).until("awaiting-approval");
+    job.approve();
+    const writing: boolean[] = [];
+    const w = watch({ subscribe: (fn) => job.subscribe((s) => (fn(s), writing.push(job.isWritingToIpod()))) });
+    release();
+    await w.until("done");
+    const firstErased = w.seen.findIndex((s) => s.ipod === "erased");
+    assert.ok(firstErased > 0);
+    assert.ok(writing.slice(0, firstErased).every((x) => !x));
+    assert.ok(writing.slice(firstErased, -1).every((x) => x));
+    assert.equal(writing.at(-1), false);
+  });
+
+  it("planning fails when the Mac has no room for the downloads", async () => {
+    const { deps, syncCalls } = stubDeps(1_000_000); // 1 MB free, the plan needs 3 MB
+    const job = createJobStore(deps).create("weezer", "/ipod");
+    const failed = await watch(job).until("failed");
+    assert.match(failed.error!, /needs at least 3\.0 MB .* 1\.0 MB free/);
+    assert.equal(failed.ipod, "untouched");
+    assert.equal(syncCalls(), 0);
   });
 
   it("an unknown playlist fails the job with the reason", async () => {

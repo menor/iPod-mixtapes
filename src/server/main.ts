@@ -6,9 +6,12 @@
  * Binds to localhost only. There is no auth: anyone who can reach the port can
  * wipe the iPod.
  *
- * Ctrl-C (or SIGTERM) during a sync waits for it to finish, because stopping partway
- * can leave the iPod erased with no track list. A second signal stops at once.
+ * Ctrl-C (or SIGTERM) after the erase waits for the sync to finish, because stopping
+ * there can leave the iPod with no track list. Before the erase it stops at once.
+ * A second signal always stops at once.
  */
+import { statfs } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { loadConfig } from "../config.ts";
 import { countIpodTracks } from "../core/ipod.ts";
 import { connectPlex, fetchPlaylist } from "../core/plex.ts";
@@ -23,6 +26,10 @@ const plex = await connectPlex(config.plex);
 const store = createJobStore({
   plan: (playlistName) => fetchPlaylist(plex, playlistName),
   inspectIpod: countIpodTracks,
+  freeTempBytes: async () => {
+    const { bavail, bsize } = await statfs(tmpdir());
+    return bavail * bsize;
+  },
   sync: syncPlaylistToIpod,
 });
 
