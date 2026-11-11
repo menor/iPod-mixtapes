@@ -6,8 +6,9 @@
 /**
  * The engine's phases, in order. A fixed set so callers can map them (CLI labels,
  * the job's step). Backup and wipe are one phase: podscribe's wipeAll does both.
+ * opening and downloading only read the iPod; wiping is the first write.
  */
-export type SyncPhase = "opening" | "wiping" | "downloading" | "writing";
+export type SyncPhase = "opening" | "downloading" | "wiping" | "copying" | "writing";
 
 /**
  * planning → awaiting-approval → running → done
@@ -35,8 +36,9 @@ export interface JobSnapshot {
   playlistName: string;
   mountPath: string;
   tracksTotal: number;
+  /** Tracks downloaded while running; tracks on the iPod once done. */
   tracksDone: number;
-  /** Bytes of finished tracks copied to the iPod. */
+  /** Bytes of finished downloads. */
   bytesDone: number;
   /** The track being downloaded now, if any. */
   current?: { index: number; title: string; receivedBytes: number; totalBytes?: number };
@@ -58,4 +60,6 @@ export interface PlanPreview {
   unknownSizes: number;
   /** Tracks on the iPod now. The wipe erases all of them. */
   ipodTracksNow: number;
+  /** Free space for downloads on the Mac. Planning fails when totalBytes does not fit. */
+  freeTempBytes: number;
 }

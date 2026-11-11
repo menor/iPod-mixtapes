@@ -24,6 +24,8 @@ export interface JobDeps {
   plan(playlistName: string): Promise<PlexPlaylistRef>;
   /** Count the tracks on the iPod. Read-only. Throws when the mount is not an iPod. */
   inspectIpod(mountPath: string): Promise<{ trackCount: number }>;
+  /** Free bytes where downloads go. The whole playlist sits there before the copy. */
+  freeTempBytes(): Promise<number>;
   /** Run the engine. Production passes syncPlaylistToIpod. */
   sync(input: SyncInput): Promise<SyncSummary>;
 }
@@ -70,20 +72,29 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
   /** Fetch the plan, then stop and wait for approve(). Never touches the iPod. */
   async function plan(): Promise<void> {
     try {
-      const [playlist, ipod] = await Promise.all([
+      const [playlist, ipod, freeTempBytes] = await Promise.all([
         deps.plan(state.playlistName),
         deps.inspectIpod(state.mountPath),
+        deps.freeTempBytes(),
       ]);
       tracks = playlist.tracks;
       const sizes = playlist.tracks.map((t) => t.sizeBytes);
+      const totalBytes = sizes.reduce<number>((sum, n) => sum + (n ?? 0), 0);
+      if (totalBytes > freeTempBytes) {
+        throw new Error(
+          `The playlist needs at least ${mb(totalBytes)} on the Mac for downloads, ` +
+            `but there is only ${mb(freeTempBytes)} free.`,
+        );
+      }
       update({
         status: "awaiting-approval",
         playlistName: playlist.title,
         tracksTotal: playlist.tracks.length,
         plan: {
-          totalBytes: sizes.reduce<number>((sum, n) => sum + (n ?? 0), 0),
+          totalBytes,
           unknownSizes: sizes.filter((n) => n === undefined).length,
           ipodTracksNow: ipod.trackCount,
+          freeTempBytes,
         },
       });
     } catch (err) {
@@ -110,8 +121,8 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
         tracks,
         tempDir,
         events: {
-          // Every step after opening writes to the iPod, so old music may be gone.
-          onPhase: (step) => update(step === "opening" ? { step } : { step, ipod: "erased" }),
+          // Wiping is the first write. From there on, old music may be gone.
+          onPhase: (step) => update(step === "wiping" ? { step, ipod: "erased" } : { step }),
           onBackup: (backupPath) => update({ backupPath }),
           onTrackStart: (index, _total, track) =>
             update({ current: { index, title: track.title, receivedBytes: 0 } }),
@@ -161,6 +172,10 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
     update({ status: "failed", error, current: undefined });
   }
 
+  function mb(bytes: number): string {
+    return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  }
+
   function update(patch: Partial<JobSnapshot>, isProgress = false): void {
     Object.assign(state, patch, { updatedAt: new Date().toISOString() });
     const now = Date.now();
@@ -175,7 +190,7 @@ function createJob(deps: JobDeps, playlistName: string, mountPath: string) {
     status: (): JobStatus => state.status,
     isActive: () => state.status !== "done" && state.status !== "failed",
     /** Stopping now can leave the iPod erased with no track list. */
-    isWritingToIpod: () => state.status === "running",
+    isWritingToIpod: () => state.status === "running" && state.ipod === "erased",
     snapshot,
     subscribe,
     plan,

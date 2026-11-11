@@ -93,7 +93,11 @@ function LiveScreen({ job }) {
   return h(
     "div",
     null,
-    h("p", { class: "warning" }, "Do not unplug the iPod."),
+    h(
+      "p",
+      { class: "warning" },
+      job.ipod === "erased" ? "Do not unplug the iPod." : "Downloading to the Mac. The iPod is unchanged so far.",
+    ),
     h("p", { class: "doing-now" }, describeDoingNow(job)),
     h(Summary, { job }),
   );
@@ -137,8 +141,8 @@ function Summary({ job }) {
     h("dt", null, "Status"),
     h("dd", null, job.status === "running" ? `running: ${job.step ?? "starting"}` : job.status),
     h("dt", null, "Tracks"),
-    h("dd", null, `${job.tracksDone} of ${job.tracksTotal} copied`),
-    h("dt", null, "Copied"),
+    h("dd", null, `${job.tracksDone} of ${job.tracksTotal} ${job.status === "done" ? "on the iPod" : "downloaded"}`),
+    h("dt", null, "Downloaded"),
     h("dd", null, mb(job.bytesDone)),
     h("dt", null, "Failures"),
     h("dd", null, String(job.skipped.length)),
